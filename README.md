@@ -278,17 +278,7 @@ _Nothing queued — suggest a feature!_
 
 ## Version History
 
-| Version | Changes |
-|---|---|
-| v1.8.0 | Unified NL command field; hybrid intent router; CRUD consolidated to dashboard; Registry tab removed |
-| v1.7.0 | Stale items alert panel; update agent prompt hardening |
-| v1.6.0 | Item detail drawer; natural language item updates; API key in graph state |
-| v1.5.0 | LangSmith tracing integration; per-run tags and metadata; sidebar status badge |
-| v1.4.0 | SQLite backend for registry and run history; in-memory DB test fixture |
-| v1.3.0 | PDF export (print-ready light theme, reportlab) |
-| v1.2.0 | Run history tab with audit trail |
-| v1.1.0 | Plotly charts, trigger-based filtering, post-run chart updates, confidence scoring |
-| v1.0.0 | Initial Groq/Llama integration replacing Gemini |
+See [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
