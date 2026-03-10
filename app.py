@@ -9,8 +9,8 @@ Requires:
 
 Features:
   - Live agent message streaming
-  - Gemini-generated recommendations per subagent (batched)
-  - Gemini-generated synthesis narrative
+  - Groq-generated recommendations per subagent (batched)
+  - Groq-generated synthesis narrative
   - Quadrant classification table
   - Subagent recommendation cards
   - HITL checkpoint panel
@@ -23,14 +23,14 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import streamlit as st
 import uuid
-import os
 
-# Load .env if present
+# Load .env from project root (same directory as app.py)
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    load_dotenv(dotenv_path=_env_path)
 except ImportError:
-    pass
+    pass  # python-dotenv not installed -- set GROQ_API_KEY in environment or sidebar
 
 # -- Page config --------------------------------------------------------------
 st.set_page_config(
@@ -188,7 +188,7 @@ def init_state():
         "thread_config": None,
         "summary_report": "",
         "trigger": "weekly home review",
-        "api_key": os.environ.get("GEMINI_API_KEY", ""),
+        "api_key": os.environ.get("GROQ_API_KEY", ""),
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -291,11 +291,11 @@ with st.sidebar:
     # API Key
     st.markdown("#### API KEY")
     api_key_input = st.text_input(
-        "Gemini API Key",
+        "Groq API Key",
         value=st.session_state.api_key,
         type="password",
         label_visibility="collapsed",
-        placeholder="AIza...",
+        placeholder="gsk_...",
     )
     if api_key_input != st.session_state.api_key:
         st.session_state.api_key = api_key_input
@@ -311,7 +311,7 @@ with st.sidebar:
     st.markdown(
         "<p style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#8b949e;'>"
         "Framework: LangGraph<br>"
-        "Model: gemini-2.0-flash<br>"
+        "Model: llama-3.3-70b-versatile<br>"
         "Agents: Orchestrator + 5 Specialists<br>"
         "Checkpoint: MemorySaver<br>"
         "HITL: interrupt_before synthesizer"
@@ -360,7 +360,7 @@ with left_col:
         from graph.graph import build_interactive_graph
 
         # Inject API key into environment for LLM calls
-        os.environ["GEMINI_API_KEY"] = st.session_state.api_key.strip()
+        os.environ["GROQ_API_KEY"] = st.session_state.api_key.strip()
 
         g = build_interactive_graph()
         thread_id = str(uuid.uuid4())
@@ -372,7 +372,7 @@ with left_col:
         log_placeholder = st.empty()
         log_lines = []
 
-        with st.spinner("Agents running  -  calling Gemini..."):
+        with st.spinner("Agents running  -  calling Groq..."):
             for node_name, node_output in iter_stream_chunks(g.stream(get_initial_state(st.session_state.trigger), config=config)):
                     for msg in node_output.get("messages", []):
                         cls = log_class(msg)
@@ -441,8 +441,8 @@ with left_col:
             g = st.session_state.hitl_graph
             config = st.session_state.thread_config
 
-            # Ensure API key is set for synthesizer Gemini call
-            os.environ["GEMINI_API_KEY"] = st.session_state.api_key.strip()
+            # Ensure API key is set for synthesizer Groq call
+            os.environ["GROQ_API_KEY"] = st.session_state.api_key.strip()
 
             g.update_state(config, {
                 "hitl_approved": hitl_approved,

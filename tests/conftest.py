@@ -33,7 +33,7 @@ def mock_llm(monkeypatch):
     """
     Auto-used fixture -- patches get_model() in llm_tools and
     _llm_synthesize in orchestrator for every test in the suite.
-    Prevents ValidationError from ChatGoogleGenerativeAI requiring
+    Prevents ValidationError from ChatGroq requiring
     an API key at instantiation time.
     """
     mock_model = MockModel()

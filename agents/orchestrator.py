@@ -1,11 +1,11 @@
 """
 orchestrator.py  -  Orchestrator agent node for HOMEBASE.
-LLM-backed synthesis via Gemini.
+LLM-backed synthesis via Groq/Llama.
 """
 
 import json
 import os
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from graph.state import HombaseState
 from tools.registry_tools import get_registry, classify_registry
 
@@ -24,11 +24,11 @@ SYNTHESIS_SYSTEM_PROMPT = (
 
 
 def _llm_synthesize(active_results: list, trigger: str, hitl_notes: str) -> str:
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    model = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        google_api_key=api_key,
-        max_output_tokens=1024,
+    api_key = os.environ.get("GROQ_API_KEY", "")
+    model = ChatGroq(
+        model="llama-3.3-70b-versatile",
+        api_key=api_key,
+        max_tokens=1024,
         temperature=0,
     )
     payload = {
@@ -51,10 +51,9 @@ def _llm_synthesize(active_results: list, trigger: str, hitl_notes: str) -> str:
         ],
     }
     try:
-        # Gemini does not support system role -- fold into user message
-        combined = f"{SYNTHESIS_SYSTEM_PROMPT}\n\n{json.dumps(payload, indent=2)}"
         response = model.invoke([
-            {"role": "user", "content": combined},
+            {"role": "system", "content": SYNTHESIS_SYSTEM_PROMPT},
+            {"role": "user", "content": json.dumps(payload, indent=2)},
         ])
         return response.content.strip()
     except Exception as e:
@@ -267,8 +266,7 @@ def synthesizer_node(state: HombaseState) -> dict:
             f"{[r['item']['id'] for r in skipped_results]}"
         )
 
-    messages.append("[Synthesizer] Calling Gemini for synthesis narrative...")
-    import time; time.sleep(5)  # brief pause to avoid rate limit after subagent batch
+    messages.append("[Synthesizer] Calling Groq for synthesis narrative...")
     narrative = _llm_synthesize(active_results, state["trigger"], hitl_notes)
 
     # Build structured report with LLM narrative + HITL decision block

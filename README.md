@@ -1,8 +1,8 @@
 # HOMEBASE
 
-### Multi-Agent Home Management System — LangGraph + Gemini
+### Multi-Agent Home Management System — LangGraph + Groq
 
-A multi-agent system built with LangGraph and Gemini 2.0 Flash demonstrating
+A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
 orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
 human-in-the-loop (HITL) checkpoints, and state persistence. The domain is home
 management; the architecture is enterprise-transferable.
@@ -83,7 +83,7 @@ homebase/
 |
 +-- tools/
 |   +-- registry_tools.py         # get_registry(), classify_registry(), get_item_detail()
-|   +-- llm_tools.py              # Gemini-backed recommendation functions
+|   +-- llm_tools.py              # Groq-backed recommendation functions
 |   +-- subagent_tools.py         # Rule-based tools (reference/fallback)
 |
 +-- tests/
@@ -109,17 +109,17 @@ cd homebase
 # Install dependencies (including dev)
 uv sync --dev
 
-# Copy environment template and add your Gemini API key
+# Copy environment template and add your Groq API key
 cp .env.example .env
 ```
 
 Edit `.env`:
 
 ```
-GEMINI_API_KEY=AIza...
+GROQ_API_KEY=gsk_...
 ```
 
-Get a key at: <https://aistudio.google.com/app/apikey>
+Get a key at: <https://console.groq.com>
 
 ---
 
@@ -224,7 +224,7 @@ stand-in for any structured dataset requiring triage, delegation, and human over
 |---|---|
 | `langgraph>=1.0.10` | Agent graph, state management, HITL checkpointing |
 | `langchain-core>=0.3.0` | LangChain base primitives |
-| `langchain-google-genai>=2.0.0` | Gemini model integration |
+| `langchain-groq>=0.2.0` | Groq/Llama model integration |
 | `python-dotenv>=1.0.0` | Environment variable loading |
 | `streamlit>=1.55.0` | Demo UI |
 | `pytest>=9.0.2` | Test runner (dev) |
@@ -233,8 +233,8 @@ stand-in for any structured dataset requiring triage, delegation, and human over
 
 ## Notes
 
-- The free Gemini API tier has per-minute and daily rate limits. If you see
-  a `RESOURCE_EXHAUSTED` error, wait 60 seconds and retry or check your
-  daily quota at <https://aistudio.google.com>
+- The free Groq tier has per-minute rate limits. If you see a `429` error,
+  wait 60 seconds and retry. Limits reset every minute.
+  Check usage at: <https://console.groq.com>
 - `tools/subagent_tools.py` contains the original rule-based recommendation
   logic from the POC and is retained as a reference/fallback

@@ -6,14 +6,14 @@ returns a list of structured Recommendation dicts. JSON output is enforced
 via system prompt  -  no response parsing ambiguity.
 
 Phase 1 (POC): rule-based pattern matching in subagent_tools.py
-Phase 2 (this): Gemini generates contextual recommendations per item
+Phase 2 (this): Groq/Llama generates contextual recommendations per item
 """
 
 import json
 import os
 from typing import TypedDict
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 
 
 # ---------------------------------------------------------------------------
@@ -33,12 +33,12 @@ class Recommendation(TypedDict):
 # Model
 # ---------------------------------------------------------------------------
 
-def get_model() -> ChatGoogleGenerativeAI:
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    return ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        google_api_key=api_key,
-        max_output_tokens=1024,
+def get_model() -> ChatGroq:
+    api_key = os.environ.get("GROQ_API_KEY", "")
+    return ChatGroq(
+        model="llama-3.3-70b-versatile",
+        api_key=api_key,
+        max_tokens=1024,
         temperature=0,
     )
 
@@ -88,10 +88,9 @@ def _call_llm(domain: str, agent_name: str, items: list[dict]) -> list[Recommend
     user_msg = f"Domain: {domain}\n\nItems:\n{json.dumps(items_payload, indent=2)}"
 
     try:
-        # Gemini does not support system role -- fold into user message
-        combined = f"{SYSTEM_PROMPT}\n\n{user_msg}"
         response = model.invoke([
-            {"role": "user", "content": combined},
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_msg},
         ])
 
         raw = response.content.strip()
