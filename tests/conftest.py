@@ -87,9 +87,9 @@ def mock_llm(monkeypatch):
       3. db.get_conn  (in-memory SQLite, isolated per test)
     """
     mock_model = MockModel()
-    monkeypatch.setattr("tools.llm_tools.get_model", lambda: mock_model)
+    monkeypatch.setattr("tools.llm_tools.get_model", lambda **kw: mock_model)
 
-    def mock_synthesize(active_results, trigger, hitl_notes):
+    def mock_synthesize(active_results, trigger, hitl_notes, **kwargs):
         ids = [r["item"]["id"] for r in active_results]
         return f"Test synthesis for '{trigger}'. Items: {', '.join(ids)}" if ids else "No active items."
 

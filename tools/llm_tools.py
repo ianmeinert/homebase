@@ -34,11 +34,11 @@ class Recommendation(TypedDict):
 # Model
 # ---------------------------------------------------------------------------
 
-def get_model() -> ChatGroq:
-    api_key = os.environ.get("GROQ_API_KEY", "")
+def get_model(api_key: str | None = None) -> ChatGroq:
+    key = api_key or os.environ.get("GROQ_API_KEY", "")
     return ChatGroq(
         model="llama-3.3-70b-versatile",
-        api_key=api_key,
+        api_key=key,
         max_tokens=1024,
         temperature=0,
     )
@@ -62,7 +62,7 @@ Respond ONLY with a valid JSON array  -  no preamble, no markdown, no explanatio
 Be specific to the item. Reference the urgency, impact, and days_since_update in your reasoning but do not include them verbatim in the output fields."""
 
 
-def _call_llm(domain: str, agent_name: str, items: list[dict]) -> list[Recommendation]:
+def _call_llm(domain: str, agent_name: str, items: list[dict], api_key: str | None = None) -> list[Recommendation]:
     """
     Make a single LLM call for all items assigned to this subagent.
     Returns a list of Recommendation dicts.
@@ -71,7 +71,7 @@ def _call_llm(domain: str, agent_name: str, items: list[dict]) -> list[Recommend
     if not items:
         return []
 
-    model = get_model()
+    model = get_model(api_key=api_key)
 
     items_payload = [
         {
@@ -144,43 +144,48 @@ def _call_llm(domain: str, agent_name: str, items: list[dict]) -> list[Recommend
 # Domain functions  -  one per subagent
 # ---------------------------------------------------------------------------
 
-def hvac_recommend_llm(items: list[dict]) -> list[Recommendation]:
+def hvac_recommend_llm(items: list[dict], api_key: str | None = None) -> list[Recommendation]:
     return _call_llm(
         domain="HVAC systems (heating, ventilation, air conditioning, filters, ductwork)",
         agent_name="HVACAgent",
         items=items,
+        api_key=api_key,
     )
 
 
-def plumbing_recommend_llm(items: list[dict]) -> list[Recommendation]:
+def plumbing_recommend_llm(items: list[dict], api_key: str | None = None) -> list[Recommendation]:
     return _call_llm(
         domain="Plumbing systems (pipes, drains, water heater, fixtures, hose bibs)",
         agent_name="PlumbingAgent",
         items=items,
+        api_key=api_key,
     )
 
 
-def electrical_recommend_llm(items: list[dict]) -> list[Recommendation]:
+def electrical_recommend_llm(items: list[dict], api_key: str | None = None) -> list[Recommendation]:
     return _call_llm(
         domain="Electrical systems (outlets, panels, fixtures, GFCI, wiring)",
         agent_name="ElectricalAgent",
         items=items,
+        api_key=api_key,
     )
 
 
-def appliance_recommend_llm(items: list[dict]) -> list[Recommendation]:
+def appliance_recommend_llm(items: list[dict], api_key: str | None = None) -> list[Recommendation]:
     return _call_llm(
         domain="Home appliances (dishwasher, dryer, refrigerator, washer, oven)",
         agent_name="ApplianceAgent",
         items=items,
+        api_key=api_key,
     )
 
 
-def general_recommend_llm(items: list[dict]) -> list[Recommendation]:
+def general_recommend_llm(items: list[dict], api_key: str | None = None) -> list[Recommendation]:
     return _call_llm(
         domain="General home maintenance (exterior, gutters, paint, caulk, safety devices, landscaping)",
         agent_name="GeneralAgent",
         items=items,
+        api_key=api_key,
     )
 
 
@@ -197,7 +202,7 @@ CATEGORY_ROUTER_LLM = {
 }
 
 
-def route_to_subagent_llm(category: str, items: list[dict]) -> list[Recommendation]:
+def route_to_subagent_llm(category: str, items: list[dict], api_key: str | None = None) -> list[Recommendation]:
     """Route a batch of items to the correct domain LLM function."""
     fn = CATEGORY_ROUTER_LLM.get(category, general_recommend_llm)
-    return fn(items)
+    return fn(items, api_key=api_key)

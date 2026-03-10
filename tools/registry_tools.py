@@ -28,7 +28,7 @@ def get_registry() -> list[dict]:
     """Return all open registry items as a list of dicts."""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM registry WHERE status = 'open' ORDER BY id"
+        "SELECT * FROM registry WHERE status IN ('open', 'in_progress') ORDER BY id"
     ).fetchall()
     conn.close()
     return [row_to_dict(r) for r in rows]

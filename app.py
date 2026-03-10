@@ -259,6 +259,11 @@ def init_state():
 
 init_state()
 
+# Sync GROQ key from session state on every rerun
+# (Streamlit reruns are stateless; env vars set in one pass may not persist)
+if st.session_state.get("api_key", "").strip():
+    os.environ["GROQ_API_KEY"] = st.session_state["api_key"].strip()
+
 
 # -- Helpers -------------------------------------------------------------------
 
@@ -327,9 +332,10 @@ def iter_stream_chunks(stream):
                     yield node_name, node_output
 
 
-def get_initial_state(trigger: str) -> dict:
+def get_initial_state(trigger: str, api_key: str = "") -> dict:
     return {
         "trigger": trigger,
+        "groq_api_key": api_key,
         "raw_registry": [], "classified_items": [],
         "hu_hi": [], "hu_li": [], "lu_hi": [], "lu_li": [],
         "stale_items": [], "delegated_items": [], "subagent_results": [],
@@ -491,7 +497,7 @@ with main_tabs[0]:
             log_lines = []
 
             with st.spinner("Agents running  -  calling Groq..."):
-                for node_name, node_output in iter_stream_chunks(g.stream(get_initial_state(st.session_state.trigger), config=config)):
+                for node_name, node_output in iter_stream_chunks(g.stream(get_initial_state(st.session_state.trigger, api_key=st.session_state.api_key.strip()), config=config)):
                         for msg in node_output.get("messages", []):
                             cls = log_class(msg)
                             log_lines.append(f'<div class="log-line {cls}">{msg}</div>')
@@ -670,6 +676,89 @@ with main_tabs[0]:
                                            None if k in ("hitl_graph", "thread_config") else \
                                            "idle" if k == "phase" else ""
                 st.rerun()
+
+        # -- UPDATE ITEM panel (available post-run and during hitl_wait) -----------
+        if st.session_state.phase in ("complete", "hitl_wait") and st.session_state.classified_items:
+            st.divider()
+            st.markdown("#### UPDATE ITEM")
+            st.markdown(
+                "<p style='font-size:12px;color:#8b949e;margin:-8px 0 12px 0;'>"
+                "Ask the agent to update a registry item using natural language.</p>",
+                unsafe_allow_html=True,
+            )
+
+            from tools.update_agent import apply_update
+            from tools.registry_tools import get_registry
+
+            item_options = {
+                f"[{i['id']}] {i['title']}": i
+                for i in sorted(
+                    st.session_state.classified_items,
+                    key=lambda x: (["HU/HI","HU/LI","LU/HI","LU/LI"].index(x["quadrant"]))
+                )
+            }
+
+            ua_col1, ua_col2 = st.columns([1, 2])
+            with ua_col1:
+                selected_label = st.selectbox(
+                    "Item",
+                    options=list(item_options.keys()),
+                    label_visibility="collapsed",
+                    key="update_item_select",
+                )
+            with ua_col2:
+                instruction = st.text_input(
+                    "Instruction",
+                    placeholder='e.g. "mark as resolved", "raise urgency to 0.9, getting worse", "reset the clock"',
+                    label_visibility="collapsed",
+                    key="update_item_instruction",
+                )
+
+            if st.button("Ask Agent to Update", key="update_item_submit", width="stretch"):
+                if instruction.strip():
+                    selected_item = item_options[selected_label]
+                    with st.spinner(f"Agent interpreting instruction for {selected_item['id']}..."):
+                        updated, changes = apply_update(
+                            selected_item["id"], selected_item, instruction.strip(),
+                            api_key=st.session_state.api_key.strip() or None,
+                        )
+                    if "_error" in changes:
+                        st.markdown(
+                            f"<div style='background:#1a0a0a;border:1px solid #ff6b6b;border-radius:6px;"
+                            f"padding:10px 14px;font-size:12px;color:#ff6b6b;font-family:IBM Plex Mono,monospace;'>"
+                            f"Agent error: {changes['_error']}</div>",
+                            unsafe_allow_html=True,
+                        )
+                    elif not changes:
+                        st.markdown(
+                            "<div style='background:#161b22;border:1px solid #30363d;border-radius:6px;"
+                            "padding:10px 14px;font-size:12px;color:#8b949e;font-family:IBM Plex Mono,monospace;'>"
+                            "Agent could not infer any changes from that instruction. Try being more specific.</div>",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        change_lines = "".join(
+                            f"<div style='margin:2px 0;'>"
+                            f"<span style='color:#8b949e;'>{k}&nbsp;</span>"
+                            f"<span style='color:#56d364;font-weight:600;'>{v}</span></div>"
+                            for k, v in changes.items()
+                        )
+                        st.markdown(
+                            f"<div style='background:#0d1117;border:1px solid #238636;border-radius:6px;"
+                            f"padding:12px 16px;font-family:IBM Plex Mono,monospace;font-size:12px;'>"
+                            f"<div style='color:#56d364;margin-bottom:8px;font-weight:600;'>"
+                            f"UPDATED {selected_item['id']}</div>"
+                            f"{change_lines}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        # Refresh classified_items list with updated values
+                        fresh_registry = {i["id"]: i for i in get_registry()}
+                        st.session_state.classified_items = [
+                            fresh_registry.get(i["id"], i)
+                            for i in st.session_state.classified_items
+                        ]
+                else:
+                    st.warning("Enter an instruction first.")
 
         # -- IDLE ------------------------------------------------------------------
         else:
@@ -895,39 +984,106 @@ with main_tabs[0]:
 
             st.divider()
 
-            # Classification table
+            # Classification table with inline detail drawer
             st.markdown("#### CLASSIFICATION TABLE")
-            rows = ""
-            for item in sorted(st.session_state.classified_items,
-                               key=lambda x: (["HU/HI","HU/LI","LU/HI","LU/LI"].index(x["quadrant"]), -(x["urgency"]+x["impact"]))):
-                stale = stale_badge() if item["days_since_update"] >= 14 else ""
-                badge = quadrant_badge(item["quadrant"])
-                is_deferred = item["id"] in deferred_set
-                row_style = "opacity:0.35;" if is_deferred else ""
-                defer_label = " <span style='font-size:10px;color:#8b949e;font-family:IBM Plex Mono,monospace;'>[deferred]</span>" if is_deferred else ""
-                rows += f"""
-    <tr style="border-bottom:1px solid #21262d;{row_style}">
-      <td style="padding:6px 8px;font-size:12px;font-family:'IBM Plex Mono',monospace;color:#8b949e;">{item['id']}</td>
-      <td style="padding:6px 8px;font-size:12px;color:#e6edf3;">{item['title']} {stale}{defer_label}</td>
-      <td style="padding:6px 8px;">{badge}</td>
-      <td style="padding:6px 8px;font-size:12px;color:#8b949e;text-align:center;">{item['urgency']:.1f} / {item['impact']:.1f}</td>
-    </tr>"""
+            st.markdown(
+                "<p style='font-size:11px;color:#8b949e;margin:-8px 0 10px 0;font-family:IBM Plex Mono,monospace;'>"
+                "Click any row to expand full details</p>",
+                unsafe_allow_html=True,
+            )
 
-            st.markdown(f"""
-    <div style="overflow-y:auto;max-height:300px;border:1px solid #21262d;border-radius:6px;">
-    <table style="width:100%;border-collapse:collapse;">
-    <thead>
-    <tr style="background:#161b22;border-bottom:1px solid #30363d;">
-      <th style="padding:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b949e;text-align:left;">ID</th>
-      <th style="padding:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b949e;text-align:left;">ITEM</th>
-      <th style="padding:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b949e;text-align:left;">QUADRANT</th>
-      <th style="padding:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b949e;text-align:center;">U / I</th>
-    </tr>
-    </thead>
-    <tbody>{rows}</tbody>
-    </table>
-    </div>
-    """, unsafe_allow_html=True)
+            # Column header row
+            st.markdown("""
+    <div style="display:grid;grid-template-columns:90px 1fr 90px 70px;gap:0;
+                padding:6px 8px;background:#161b22;border:1px solid #30363d;
+                border-radius:6px 6px 0 0;margin-bottom:0;">
+      <span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:#8b949e;">ID</span>
+      <span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:#8b949e;">ITEM</span>
+      <span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:#8b949e;">QUADRANT</span>
+      <span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:#8b949e;text-align:center;">U / I</span>
+    </div>""", unsafe_allow_html=True)
+
+            sorted_items = sorted(
+                st.session_state.classified_items,
+                key=lambda x: (["HU/HI","HU/LI","LU/HI","LU/LI"].index(x["quadrant"]), -(x["urgency"]+x["impact"]))
+            )
+
+            Q_COLORS_MAP = {"HU/HI": "#ff6b6b", "HU/LI": "#fbbf24", "LU/HI": "#6ee7b7", "LU/LI": "#93c5fd"}
+            CAT_ICONS    = {"hvac": "HVAC", "plumbing": "PLM", "electrical": "ELC", "appliance": "APP", "general": "GEN"}
+
+            for item in sorted_items:
+                is_deferred = item["id"] in deferred_set
+                is_stale    = item["days_since_update"] >= 14
+                q_color     = Q_COLORS_MAP.get(item["quadrant"], "#8b949e")
+                opacity     = "0.35" if is_deferred else "1"
+
+                # Expander label — plain text only (Streamlit does not render HTML in labels)
+                stale_marker = "  [STALE]" if is_stale else ""
+                defer_marker = "  [deferred]" if is_deferred else ""
+                label = (
+                    f"[{item['id']}]  {item['title']}{stale_marker}{defer_marker}"
+                    f"  ·  {item['quadrant']}  ·  U:{item['urgency']:.1f} I:{item['impact']:.1f}"
+                )
+
+                with st.expander(label, expanded=False):
+                    d1, d2, d3 = st.columns([1, 1, 1])
+
+                    with d1:
+                        st.markdown(f"""
+    <div style="padding:10px;background:#0d1117;border-radius:6px;border:1px solid #21262d;">
+      <div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#8b949e;margin-bottom:4px;">ITEM</div>
+      <div style="font-family:IBM Plex Mono,monospace;font-size:13px;font-weight:600;color:{q_color};">{item['id']}</div>
+      <div style="font-size:13px;color:#e6edf3;margin:4px 0 8px 0;">{item['title']}</div>
+      <div style="font-size:11px;color:#8b949e;line-height:1.5;">{item['description']}</div>
+    </div>""", unsafe_allow_html=True)
+
+                    with d2:
+                        status_color = "#56d364" if item.get("status") == "open" else "#8b949e"
+                        stale_color  = "#fbbf24" if is_stale else "#8b949e"
+                        stale_text   = f"STALE ({item['days_since_update']}d)" if is_stale else f"{item['days_since_update']}d ago"
+                        st.markdown(f"""
+    <div style="padding:10px;background:#0d1117;border-radius:6px;border:1px solid #21262d;">
+      <div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#8b949e;margin-bottom:8px;">SCORES</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <div>
+          <div style="font-size:10px;color:#8b949e;margin-bottom:2px;">URGENCY</div>
+          <div style="background:#21262d;border-radius:4px;height:8px;">
+            <div style="width:{int(item['urgency']*100)}%;background:#ff6b6b;border-radius:4px;height:8px;"></div>
+          </div>
+          <div style="font-size:11px;color:#e6edf3;margin-top:2px;">{item['urgency']:.2f}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:#8b949e;margin-bottom:2px;">IMPACT</div>
+          <div style="background:#21262d;border-radius:4px;height:8px;">
+            <div style="width:{int(item['impact']*100)}%;background:#6ee7b7;border-radius:4px;height:8px;"></div>
+          </div>
+          <div style="font-size:11px;color:#e6edf3;margin-top:2px;">{item['impact']:.2f}</div>
+        </div>
+      </div>
+    </div>""", unsafe_allow_html=True)
+
+                    with d3:
+                        cat_label = item.get("category", "general").upper()
+                        st.markdown(f"""
+    <div style="padding:10px;background:#0d1117;border-radius:6px;border:1px solid #21262d;">
+      <div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#8b949e;margin-bottom:8px;">STATUS</div>
+      <div style="margin-bottom:6px;">
+        <span style="font-size:10px;color:#8b949e;">QUADRANT&nbsp;</span>
+        <span style="font-family:IBM Plex Mono,monospace;font-size:12px;font-weight:600;color:{q_color};">{item['quadrant']}</span>
+      </div>
+      <div style="margin-bottom:6px;">
+        <span style="font-size:10px;color:#8b949e;">CATEGORY&nbsp;</span>
+        <span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:#79c0ff;">{cat_label}</span>
+      </div>
+      <div style="margin-bottom:6px;">
+        <span style="font-size:10px;color:#8b949e;">LAST UPDATE&nbsp;</span>
+        <span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:{stale_color};">{stale_text}</span>
+      </div>
+      <div>
+        <span style="font-size:10px;color:#8b949e;">STATUS&nbsp;</span>
+        <span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:{status_color};">{item.get('status','open').upper()}</span>
+      </div>
+    </div>""", unsafe_allow_html=True)
 
         # -- Subagent recommendation cards -----------------------------------------
         if st.session_state.subagent_results:

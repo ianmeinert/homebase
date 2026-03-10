@@ -2,7 +2,7 @@
 
 ### Multi-Agent Home Management System — LangGraph + Groq
 
-### v1.5.0
+### v1.6.0
 
 A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
 orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
@@ -55,6 +55,7 @@ orchestrator  (trigger-based category filter + optional HU/HI-only mode)
 
 **Key LangGraph features demonstrated:**
 
+- `groq_api_key` carried in graph state — survives HITL interrupt/resume without env var dependency
 - `StateGraph` with typed shared state (`TypedDict`)
 - Parallel node fan-out with `Annotated[list, merge_lists]` reducer
 - `MemorySaver` checkpointer for state persistence across the interrupt
@@ -90,6 +91,7 @@ homebase/
 |   +-- history_tools.py          # Run history persistence backed by SQLite
 |   +-- llm_tools.py              # Groq-backed recommendation functions + confidence scoring
 |   +-- tracing.py                # LangSmith tracing init, status check, per-run metadata
+|   +-- update_agent.py           # Natural language registry update agent (single-shot Groq call)
 |   +-- subagent_tools.py         # Rule-based tools (reference/fallback)
 |
 +-- tests/
@@ -100,6 +102,7 @@ homebase/
     +-- test_subagent_tools.py    # 33 tests — domain recommendation functions, router
     +-- test_subagents.py         # 19 tests — subagent nodes, category filtering
     +-- test_hitl.py              # 31 tests — HITL briefing, deferral logic, interrupt/resume
+    +-- test_update_agent.py      # 16 tests — NL interpretation, field validation, apply_update
 ```
 
 ---
@@ -189,7 +192,7 @@ uv run pytest -v
 uv run pytest tests/test_hitl.py -v
 ```
 
-**131 tests across 6 files.**
+**147 tests across 7 files.**
 
 | File | Tests | Covers |
 |---|---|---|
@@ -199,6 +202,7 @@ uv run pytest tests/test_hitl.py -v
 | `test_subagent_tools.py` | 33 | Domain recommendation functions, category router |
 | `test_subagents.py` | 19 | Subagent nodes, category filtering, result structure |
 | `test_hitl.py` | 31 | HITL briefing, deferral filtering, interrupt/resume behavior |
+| `test_update_agent.py` | 16 | NL interpretation, field validation, clamping, apply_update path |
 
 ---
 
@@ -254,12 +258,14 @@ uv run pytest tests/test_hitl.py -v
 - [x] Export report — download final report as print-ready PDF
 - [x] Confidence scoring — LLM returns 0.0–1.0 confidence per recommendation, displayed as color-coded progress bar
 - [x] SQLite backend — `registry` and `run_history` tables in `data/homebase.db`; auto-seeded from `registry.json` on first run; in-memory DB fixture in tests
-- [x] 131-test suite with global LLM mock and isolated DB per test
+- [x] 147-test suite with global LLM mock, isolated in-memory DB per test, and update agent coverage
+- [x] LangSmith tracing — `LANGCHAIN_API_KEY` in `.env` activates full trace; sidebar shows live status; runs tagged by trigger and category filter
+- [x] Item detail drawer — click any row in the classification table to expand full item details (description, urgency/impact bars, quadrant, category, stale age, status)
+- [x] Natural language item updates — UPDATE ITEM panel post-run; agent interprets free-text instructions and writes changes to SQLite; available during HITL wait and after completion
+- [x] API key carried in graph state — survives MemorySaver checkpoint across HITL interrupt/resume; no env var timing dependency
 
 ## Planned Features
 
-- [x] LangSmith tracing — `LANGCHAIN_API_KEY` in `.env` activates full trace; sidebar shows live status; runs tagged by trigger and category filter
-- [ ] **Item detail drawer** — click any item in the classification table to expand full details inline
 - [ ] **Stale items alert panel** — dedicated callout at top of run, not just a badge
 
 ---
@@ -268,6 +274,7 @@ uv run pytest tests/test_hitl.py -v
 
 | Version | Changes |
 |---|---|
+| v1.6.0 | Item detail drawer; natural language item updates; API key in graph state |
 | v1.5.0 | LangSmith tracing integration; per-run tags and metadata; sidebar status badge |
 | v1.4.0 | SQLite backend for registry and run history; in-memory DB test fixture |
 | v1.3.0 | PDF export (print-ready light theme, reportlab) |

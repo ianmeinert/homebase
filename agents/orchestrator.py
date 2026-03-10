@@ -23,14 +23,9 @@ SYNTHESIS_SYSTEM_PROMPT = (
 )
 
 
-def _llm_synthesize(active_results: list, trigger: str, hitl_notes: str) -> str:
-    api_key = os.environ.get("GROQ_API_KEY", "")
-    model = ChatGroq(
-        model="llama-3.3-70b-versatile",
-        api_key=api_key,
-        max_tokens=1024,
-        temperature=0,
-    )
+def _llm_synthesize(active_results: list, trigger: str, hitl_notes: str, api_key: str = "") -> str:
+    from tools.llm_tools import get_model
+    model = get_model(api_key=api_key or None)
     payload = {
         "trigger": trigger,
         "human_notes": hitl_notes or "None",
@@ -57,7 +52,8 @@ def _llm_synthesize(active_results: list, trigger: str, hitl_notes: str) -> str:
         ])
         return response.content.strip()
     except Exception as e:
-        return f"Synthesis unavailable ({type(e).__name__}). See recommendations above."
+        import traceback
+        return f"Synthesis unavailable ({type(e).__name__}): {e}\n\nTraceback:\n{traceback.format_exc()}"
 
 
 
@@ -317,7 +313,7 @@ def synthesizer_node(state: HombaseState) -> dict:
         )
 
     messages.append("[Synthesizer] Calling Groq for synthesis narrative...")
-    narrative = _llm_synthesize(active_results, state["trigger"], hitl_notes)
+    narrative = _llm_synthesize(active_results, state["trigger"], hitl_notes, api_key=state.get("groq_api_key", ""))
 
     # Build structured report with LLM narrative + HITL decision block
     hitl_lines = [

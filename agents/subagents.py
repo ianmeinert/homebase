@@ -1,6 +1,6 @@
 """
 subagents.py  -  Specialist subagent nodes for HOMEBASE.
-Each subagent batches its assigned items into a single LLM call
+Each subagent batches its assigned items into a single Groq call
 and returns structured recommendations back to the synthesizer.
 """
 
@@ -29,9 +29,10 @@ def _process_items_llm(category: str, agent_name: str, state: HombaseState) -> d
         return {"messages": messages}
 
     item_ids = [i["id"] for i in items]
-    messages.append(f"[{agent_name}] Calling Gemini  -  batch: {item_ids}")
+    messages.append(f"[{agent_name}] Calling Groq  -  batch: {item_ids}")
 
-    recommendations = route_to_subagent_llm(category, items)
+    api_key = state.get("groq_api_key", "") or None
+    recommendations = route_to_subagent_llm(category, items, api_key=api_key)
 
     results = []
     for item in items:
