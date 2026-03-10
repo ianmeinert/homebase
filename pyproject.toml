@@ -12,9 +12,9 @@ dependencies = [
     "langgraph>=1.0.10",
     "langchain-core>=0.3.0",
     "langchain-groq>=0.2.0",
+    "plotly>=5.0.0",
     "python-dotenv>=1.0.0",
     "streamlit>=1.55.0",
-    "pytest>=9.0.2",
 ]
 
 [project.optional-dependencies]

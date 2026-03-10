@@ -57,7 +57,7 @@ def _llm_synthesize(active_results: list, trigger: str, hitl_notes: str) -> str:
         ])
         return response.content.strip()
     except Exception as e:
-        return f"Synthesis unavailable ({type(e).__name__}): {str(e)[:300]}"
+        return f"Synthesis unavailable ({type(e).__name__}). See recommendations above."
 
 
 
@@ -187,17 +187,60 @@ def build_synthesis_report(subagent_results: list[dict], trigger: str) -> str:
 # Node: orchestrator  -  Phase 1 + Phase 2 delegation setup
 # ---------------------------------------------------------------------------
 
+# Trigger keywords -> category filter map
+TRIGGER_CATEGORY_MAP = {
+    "plumbing":     ["plumbing"],
+    "electrical":   ["electrical"],
+    "hvac":         ["hvac"],
+    "appliance":    ["appliance"],
+    "exterior":     ["general"],
+    "grounds":      ["general"],
+    "fire":         ["electrical", "appliance", "general"],
+    "safety":       ["electrical", "appliance", "general"],
+}
+
+# Triggers that load full registry but restrict output to HU/HI quadrant only
+HUHI_ONLY_TRIGGERS = ["immediate", "urgent", "critical"]
+
+
+def _resolve_category_filter(trigger: str) -> tuple:
+    """
+    Returns (category_filter, huhi_only).
+    category_filter: list of categories to include, or None for all.
+    huhi_only: True if output should be restricted to HU/HI items only.
+    """
+    t = trigger.lower()
+    huhi_only = any(kw in t for kw in HUHI_ONLY_TRIGGERS)
+    for keyword, cats in TRIGGER_CATEGORY_MAP.items():
+        if keyword in t:
+            return cats, huhi_only
+    return None, huhi_only
+
+
 def orchestrator_node(state: HombaseState) -> dict:
     """
     LangGraph node  -  Orchestrator Agent.
-    Loads registry, classifies items, populates state buckets,
-    and prepares delegated_items for subagent routing.
+    Loads registry, applies trigger-based category filter, classifies items,
+    populates state buckets, and prepares delegated_items for subagent routing.
     """
     messages = [f"[Orchestrator] Trigger received: '{state['trigger']}'"]
 
     messages.append("[Orchestrator] Calling tool: get_registry()")
     raw_registry = get_registry()
     messages.append(f"[Orchestrator] Registry loaded: {len(raw_registry)} items")
+
+    # Apply category filter based on trigger
+    category_filter, huhi_only = _resolve_category_filter(state["trigger"])
+    if category_filter:
+        raw_registry = [i for i in raw_registry if i.get("category") in category_filter]
+        messages.append(
+            f"[Orchestrator] Trigger filter applied  -  "
+            f"categories: {category_filter}  -  {len(raw_registry)} items matched"
+        )
+    else:
+        messages.append("[Orchestrator] No category filter  -  full registry loaded")
+    if huhi_only:
+        messages.append("[Orchestrator] HU/HI-only mode  -  lower-priority items suppressed")
 
     messages.append("[Orchestrator] Calling tool: classify_registry()")
     buckets = classify_registry(raw_registry)
@@ -209,6 +252,13 @@ def orchestrator_node(state: HombaseState) -> dict:
         f"LU/LI: {len(buckets['lu_li'])} | "
         f"Stale: {len(buckets['stale_items'])}"
     )
+
+    # HU/HI-only mode: suppress lower-priority buckets from state
+    if huhi_only:
+        buckets["hu_li"] = []
+        buckets["lu_hi"] = []
+        buckets["lu_li"] = []
+        buckets["all"] = buckets["hu_hi"]
 
     # Phase 2: delegate HU/HI and LU/HI items to specialist subagents
     delegated = buckets["hu_hi"] + buckets["lu_hi"]

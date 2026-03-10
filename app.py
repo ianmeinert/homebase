@@ -248,7 +248,7 @@ def get_initial_state(trigger: str) -> dict:
         "raw_registry": [], "classified_items": [],
         "hu_hi": [], "hu_li": [], "lu_hi": [], "lu_li": [],
         "stale_items": [], "delegated_items": [], "subagent_results": [],
-        "hitl_approved": False, "hitl_notes": "", "deferred_items": [],
+        "hitl_approved": False, "hitl_notes": "", "deferred_items": [], "active_items": [],
         "summary_report": "", "messages": [],
     }
 
@@ -276,7 +276,7 @@ with st.sidebar:
     }
 
     for label, trigger in prompts.items():
-        if st.button(label, key=f"prompt_{trigger}", use_container_width=True):
+        if st.button(label, key=f"prompt_{trigger}", width="stretch"):
             st.session_state.trigger = trigger
             st.session_state.phase = "idle"
             st.session_state.messages = []
@@ -338,7 +338,7 @@ with col_input:
 
 with col_run:
     run_disabled = st.session_state.phase in ("running", "hitl_wait") or not st.session_state.api_key.strip()
-    if st.button(">  RUN", disabled=run_disabled, use_container_width=True):
+    if st.button(">  RUN", disabled=run_disabled, width="stretch"):
         st.session_state.phase = "running"
         st.session_state.messages = []
         st.session_state.classified_items = []
@@ -414,6 +414,9 @@ with left_col:
 """, unsafe_allow_html=True)
 
         hu_hi_ids = [item["id"] for item in st.session_state.hu_hi]
+        lu_hi_ids = [r["item"]["id"] for r in st.session_state.subagent_results
+                     if r["item"]["quadrant"] == "LU/HI"]
+        all_deferrable = hu_hi_ids + [i for i in lu_hi_ids if i not in hu_hi_ids]
 
         with st.form("hitl_form"):
             approved = st.radio(
@@ -424,8 +427,8 @@ with left_col:
 
             defer_ids = st.multiselect(
                 "Defer specific items (optional)",
-                options=hu_hi_ids,
-                help="Selected items will be excluded from the final action plan",
+                options=all_deferrable,
+                help="HU/HI and LU/HI items can be deferred. Deferred items are excluded from the final action plan.",
             )
 
             notes = st.text_area(
@@ -434,7 +437,7 @@ with left_col:
                 height=80,
             )
 
-            submitted = st.form_submit_button("OK  Submit Decision & Resume", use_container_width=True)
+            submitted = st.form_submit_button("OK  Submit Decision & Resume", width="stretch")
 
         if submitted:
             hitl_approved = "Yes" in approved
@@ -460,6 +463,12 @@ with left_col:
 
             final_state = g.get_state(config)
             st.session_state.summary_report = final_state.values.get("summary_report", "")
+            deferred = set(final_state.values.get("deferred_items", []))
+            st.session_state.deferred_items = list(deferred)
+            st.session_state.active_items = [
+                i for i in st.session_state.classified_items
+                if i["id"] not in deferred
+            ]
             st.session_state.messages = resume_logs
             st.session_state.phase = "complete"
             st.rerun()
@@ -475,9 +484,34 @@ with left_col:
 
         st.divider()
         st.markdown("#### FINAL REPORT")
-        st.code(st.session_state.summary_report, language=None)
 
-        if st.button("Reset  New Run", use_container_width=True):
+        # Format report: styled prose panel with word wrap
+        import re as _re
+        report_lines = st.session_state.summary_report.splitlines()
+        formatted = []
+        for line in report_lines:
+            stripped = line.strip()
+            if stripped.startswith("---"):
+                formatted.append("<hr style='border:none;border-top:1px solid #30363d;margin:12px 0;'>")
+            elif stripped.startswith("HITL DECISION SUMMARY"):
+                formatted.append(f"<p style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#8b949e;letter-spacing:1px;margin:8px 0 4px 0;'>{stripped}</p>")
+            elif stripped and stripped[0].isdigit() and "." in stripped[:4]:
+                line_html = _re.sub(r"(\[[\w-]+\])", r"<span style='color:#79c0ff;font-family:IBM Plex Mono,monospace;font-size:11px;'>\1</span>", stripped)
+                formatted.append(f"<p style='margin:6px 0;font-size:13px;color:#e6edf3;line-height:1.6;'>{line_html}</p>")
+            elif stripped.startswith("Approved") or stripped.startswith("All HU/HI"):
+                formatted.append(f"<p style='margin:4px 0;font-size:13px;color:#56d364;'>{stripped}</p>")
+            elif stripped:
+                formatted.append(f"<p style='margin:8px 0;font-size:13px;color:#e6edf3;line-height:1.7;'>{stripped}</p>")
+
+        report_html = "\n".join(formatted)
+        st.markdown(f"""
+<div style="background:#161b22;border:1px solid #21262d;border-radius:8px;
+            padding:20px 24px;word-wrap:break-word;overflow-wrap:break-word;">
+{report_html}
+</div>
+""", unsafe_allow_html=True)
+
+        if st.button("Reset  New Run", width="stretch"):
             for k in ["phase", "messages", "classified_items", "subagent_results",
                       "hu_hi", "hitl_graph", "thread_config", "summary_report"]:
                 st.session_state[k] = [] if isinstance(st.session_state[k], list) else \
@@ -503,9 +537,19 @@ with right_col:
         st.markdown("#### QUADRANT SUMMARY")
 
         from collections import Counter
-        q_counts = Counter(i["quadrant"] for i in st.session_state.classified_items)
-        stale_count = sum(1 for i in st.session_state.classified_items if i["days_since_update"] >= 14)
-        total = len(st.session_state.classified_items)
+
+        # Post-run: use active_items (deferred excluded); pre-HITL: use all classified
+        chart_items = (
+            st.session_state.active_items
+            if st.session_state.phase == "complete" and st.session_state.active_items
+            else st.session_state.classified_items
+        )
+        deferred_set = set(st.session_state.get("deferred_items", []))
+        is_post_run = st.session_state.phase == "complete" and bool(deferred_set)
+
+        q_counts = Counter(i["quadrant"] for i in chart_items)
+        stale_count = sum(1 for i in chart_items if i["days_since_update"] >= 14)
+        total = len(chart_items)
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("HU/HI", q_counts.get("HU/HI", 0))
@@ -513,7 +557,173 @@ with right_col:
         m3.metric("LU/HI", q_counts.get("LU/HI", 0))
         m4.metric("LU/LI", q_counts.get("LU/LI", 0))
 
-        st.markdown(f"<p style='font-size:12px;color:#8b949e;margin:4px 0 12px 0;'>{total} total items &nbsp;-&nbsp; {stale_count} stale (14+ days)</p>", unsafe_allow_html=True)
+        summary_suffix = f"&nbsp;-&nbsp; {len(deferred_set)} deferred" if is_post_run else ""
+        st.markdown(f"<p style='font-size:12px;color:#8b949e;margin:4px 0 12px 0;'>{total} active items &nbsp;-&nbsp; {stale_count} stale (14+ days){summary_suffix}</p>", unsafe_allow_html=True)
+
+        # -- Charts ---------------------------------------------------------------
+        import plotly.graph_objects as go
+        import plotly.express as px
+
+        chart_tabs = st.tabs(["Scatter", "Categories", "Stale", "Distribution"])
+
+        # Quadrant colors
+        Q_COLORS = {
+            "HU/HI": "#ff6b6b",
+            "HU/LI": "#fbbf24",
+            "LU/HI": "#6ee7b7",
+            "LU/LI": "#93c5fd",
+        }
+
+        items = chart_items
+
+        # Tab 1 -- Urgency vs Impact scatter
+        with chart_tabs[0]:
+            fig = go.Figure()
+
+            # Quadrant shading
+            fig.add_shape(type="rect", x0=0.6, x1=1.05, y0=0.6, y1=1.05,
+                fillcolor="rgba(255,107,107,0.06)", line=dict(width=0))
+            fig.add_shape(type="rect", x0=0.6, x1=1.05, y0=-0.05, y1=0.6,
+                fillcolor="rgba(251,191,36,0.06)", line=dict(width=0))
+            fig.add_shape(type="rect", x0=-0.05, x1=0.6, y0=0.6, y1=1.05,
+                fillcolor="rgba(110,231,183,0.06)", line=dict(width=0))
+            fig.add_shape(type="rect", x0=-0.05, x1=0.6, y0=-0.05, y1=0.6,
+                fillcolor="rgba(147,197,253,0.06)", line=dict(width=0))
+
+            # Threshold lines
+            fig.add_shape(type="line", x0=0.6, x1=0.6, y0=0, y1=1,
+                line=dict(color="#30363d", width=1, dash="dash"))
+            fig.add_shape(type="line", x0=0, x1=1, y0=0.6, y1=0.6,
+                line=dict(color="#30363d", width=1, dash="dash"))
+
+            # Quadrant labels
+            for label, x, y in [("HU/HI", 0.82, 0.95), ("HU/LI", 0.82, 0.3),
+                                  ("LU/HI", 0.3, 0.95), ("LU/LI", 0.3, 0.3)]:
+                fig.add_annotation(x=x, y=y, text=label, showarrow=False,
+                    font=dict(color=Q_COLORS[label], size=10, family="IBM Plex Mono"),
+                    opacity=0.5)
+
+            # Plot items by quadrant
+            for q, color in Q_COLORS.items():
+                q_items = [i for i in items if i["quadrant"] == q]
+                if q_items:
+                    fig.add_trace(go.Scatter(
+                        x=[i["urgency"] for i in q_items],
+                        y=[i["impact"] for i in q_items],
+                        mode="markers+text",
+                        name=q,
+                        marker=dict(color=color, size=10, line=dict(width=1, color="#0d1117")),
+                        text=[i["id"] for i in q_items],
+                        textposition="top center",
+                        textfont=dict(size=9, color="#8b949e"),
+                        hovertemplate="<b>%{customdata}</b><br>Urgency: %{x:.2f}<br>Impact: %{y:.2f}<extra></extra>",
+                        customdata=[i["title"] for i in q_items],
+                    ))
+
+            fig.update_layout(
+                paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                font=dict(color="#8b949e", family="IBM Plex Sans"),
+                xaxis=dict(title="Urgency", range=[-0.05, 1.05],
+                    gridcolor="#21262d", zerolinecolor="#21262d",
+                    tickfont=dict(size=10)),
+                yaxis=dict(title="Impact", range=[-0.05, 1.05],
+                    gridcolor="#21262d", zerolinecolor="#21262d",
+                    tickfont=dict(size=10)),
+                legend=dict(bgcolor="#161b22", bordercolor="#21262d", borderwidth=1,
+                    font=dict(size=10)),
+                margin=dict(l=40, r=20, t=20, b=40),
+                height=300,
+            )
+            st.plotly_chart(fig, width="stretch")
+
+        # Tab 2 -- Category breakdown bar
+        with chart_tabs[1]:
+            from collections import Counter
+            cat_counts = Counter(i["category"] for i in items)
+            cats = sorted(cat_counts.keys())
+            cat_colors = {
+                "hvac": "#79c0ff", "plumbing": "#6ee7b7",
+                "electrical": "#fbbf24", "appliance": "#d2a8ff", "general": "#8b949e"
+            }
+            fig2 = go.Figure(go.Bar(
+                x=cats,
+                y=[cat_counts[c] for c in cats],
+                marker_color=[cat_colors.get(c, "#8b949e") for c in cats],
+                text=[cat_counts[c] for c in cats],
+                textposition="outside",
+                textfont=dict(color="#e6edf3", size=11),
+            ))
+            fig2.update_layout(
+                paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                font=dict(color="#8b949e", family="IBM Plex Sans"),
+                xaxis=dict(gridcolor="#21262d", tickfont=dict(size=10)),
+                yaxis=dict(gridcolor="#21262d", tickfont=dict(size=10), dtick=1),
+                margin=dict(l=40, r=20, t=20, b=40),
+                height=300,
+                showlegend=False,
+            )
+            st.plotly_chart(fig2, width="stretch")
+
+        # Tab 3 -- Stale vs current donut
+        with chart_tabs[2]:
+            current_count = total - stale_count
+            fig3 = go.Figure(go.Pie(
+                labels=["Current", "Stale (14+ days)"],
+                values=[current_count, stale_count],
+                hole=0.6,
+                marker=dict(colors=["#56d364", "#f59e0b"],
+                    line=dict(color="#0d1117", width=2)),
+                textinfo="label+percent",
+                textfont=dict(size=11, color="#e6edf3"),
+                hovertemplate="%{label}: %{value} items<extra></extra>",
+            ))
+            fig3.add_annotation(
+                text=f"{stale_count}<br>stale",
+                x=0.5, y=0.5, showarrow=False,
+                font=dict(size=14, color="#f59e0b", family="IBM Plex Mono"),
+            )
+            fig3.update_layout(
+                paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                font=dict(color="#8b949e", family="IBM Plex Sans"),
+                margin=dict(l=20, r=20, t=20, b=20),
+                height=300,
+                showlegend=True,
+                legend=dict(bgcolor="#161b22", bordercolor="#21262d",
+                    borderwidth=1, font=dict(size=10)),
+            )
+            st.plotly_chart(fig3, width="stretch")
+
+        # Tab 4 -- Urgency + Impact distribution
+        with chart_tabs[3]:
+            fig4 = go.Figure()
+            fig4.add_trace(go.Histogram(
+                x=[i["urgency"] for i in items],
+                name="Urgency",
+                marker_color="#ff6b6b",
+                opacity=0.75,
+                xbins=dict(start=0, end=1, size=0.1),
+            ))
+            fig4.add_trace(go.Histogram(
+                x=[i["impact"] for i in items],
+                name="Impact",
+                marker_color="#79c0ff",
+                opacity=0.75,
+                xbins=dict(start=0, end=1, size=0.1),
+            ))
+            fig4.update_layout(
+                barmode="overlay",
+                paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                font=dict(color="#8b949e", family="IBM Plex Sans"),
+                xaxis=dict(title="Score", gridcolor="#21262d", tickfont=dict(size=10)),
+                yaxis=dict(title="Items", gridcolor="#21262d", tickfont=dict(size=10), dtick=1),
+                legend=dict(bgcolor="#161b22", bordercolor="#21262d",
+                    borderwidth=1, font=dict(size=10)),
+                margin=dict(l=40, r=20, t=20, b=40),
+                height=300,
+            )
+            st.plotly_chart(fig4, width="stretch")
+
+        st.divider()
 
         # Classification table
         st.markdown("#### CLASSIFICATION TABLE")
@@ -522,10 +732,13 @@ with right_col:
                            key=lambda x: (["HU/HI","HU/LI","LU/HI","LU/LI"].index(x["quadrant"]), -(x["urgency"]+x["impact"]))):
             stale = stale_badge() if item["days_since_update"] >= 14 else ""
             badge = quadrant_badge(item["quadrant"])
+            is_deferred = item["id"] in deferred_set
+            row_style = "opacity:0.35;" if is_deferred else ""
+            defer_label = " <span style='font-size:10px;color:#8b949e;font-family:IBM Plex Mono,monospace;'>[deferred]</span>" if is_deferred else ""
             rows += f"""
-<tr style="border-bottom:1px solid #21262d;">
+<tr style="border-bottom:1px solid #21262d;{row_style}">
   <td style="padding:6px 8px;font-size:12px;font-family:'IBM Plex Mono',monospace;color:#8b949e;">{item['id']}</td>
-  <td style="padding:6px 8px;font-size:12px;color:#e6edf3;">{item['title']} {stale}</td>
+  <td style="padding:6px 8px;font-size:12px;color:#e6edf3;">{item['title']} {stale}{defer_label}</td>
   <td style="padding:6px 8px;">{badge}</td>
   <td style="padding:6px 8px;font-size:12px;color:#8b949e;text-align:center;">{item['urgency']:.1f} / {item['impact']:.1f}</td>
 </tr>"""
