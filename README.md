@@ -2,7 +2,7 @@
 
 ### Multi-Agent Home Management System — LangGraph + Groq
 
-### v1.4.0
+### v1.5.0
 
 A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
 orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
@@ -89,6 +89,7 @@ homebase/
 |   +-- registry_tools.py         # Registry CRUD backed by SQLite
 |   +-- history_tools.py          # Run history persistence backed by SQLite
 |   +-- llm_tools.py              # Groq-backed recommendation functions + confidence scoring
+|   +-- tracing.py                # LangSmith tracing init, status check, per-run metadata
 |   +-- subagent_tools.py         # Rule-based tools (reference/fallback)
 |
 +-- tests/
@@ -123,6 +124,19 @@ Get a key at: <https://console.groq.com>
 
 **Database:** `data/homebase.db` is created and seeded automatically on first run.
 No migration step required.
+
+**LangSmith tracing (optional):**
+Add to `.env` to activate:
+
+```
+LANGCHAIN_API_KEY=ls__...
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_PROJECT=homebase
+```
+
+Get a key at: <https://smith.langchain.com> (free tier available).
+Tracing status appears in the sidebar. Each run produces a full trace with node timing,
+LLM calls (prompt/response/tokens/latency), HITL state, and searchable tags.
 
 ---
 
@@ -217,6 +231,7 @@ uv run pytest tests/test_hitl.py -v
 | Deferral with notes | Documented risk acceptance / exception handling |
 | `MemorySaver` checkpoint | Audit trail of human decisions |
 | SQLite backend | Persistent, portable state store |
+| LangSmith tracing | Audit trail of model reasoning for stakeholder validation |
 
 ---
 
@@ -243,7 +258,7 @@ uv run pytest tests/test_hitl.py -v
 
 ## Planned Features
 
-- [ ] **LangSmith tracing** — one env var enables full visual trace of agent execution
+- [x] LangSmith tracing — `LANGCHAIN_API_KEY` in `.env` activates full trace; sidebar shows live status; runs tagged by trigger and category filter
 - [ ] **Item detail drawer** — click any item in the classification table to expand full details inline
 - [ ] **Stale items alert panel** — dedicated callout at top of run, not just a badge
 
@@ -253,6 +268,7 @@ uv run pytest tests/test_hitl.py -v
 
 | Version | Changes |
 |---|---|
+| v1.5.0 | LangSmith tracing integration; per-run tags and metadata; sidebar status badge |
 | v1.4.0 | SQLite backend for registry and run history; in-memory DB test fixture |
 | v1.3.0 | PDF export (print-ready light theme, reportlab) |
 | v1.2.0 | Run history tab with audit trail |
