@@ -32,6 +32,10 @@ try:
 except ImportError:
     pass  # python-dotenv not installed -- set GROQ_API_KEY in environment or sidebar
 
+# -- LangSmith tracing (activates if LANGCHAIN_API_KEY is set in .env) --------
+from tools.tracing import init_tracing, is_tracing_enabled, get_project_name, get_run_metadata
+init_tracing()
+
 # -- Page config --------------------------------------------------------------
 st.set_page_config(
     page_title="HOMEBASE",
@@ -400,6 +404,28 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+    st.divider()
+    st.markdown("#### LANGSMITH")
+    if is_tracing_enabled():
+        project = get_project_name()
+        st.markdown(
+            f"<p style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#56d364;'>"
+            f"TRACING ACTIVE<br>"
+            f"<span style='color:#8b949e;'>Project: {project}</span><br>"
+            f"<a href='https://smith.langchain.com' target='_blank' "
+            f"style='color:#79c0ff;text-decoration:none;'>smith.langchain.com</a>"
+            f"</p>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<p style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#8b949e;'>"
+            "TRACING OFF<br>"
+            "<span style='font-size:10px;'>Set LANGCHAIN_API_KEY<br>in .env to enable</span>"
+            "</p>",
+            unsafe_allow_html=True,
+        )
+
 
 # -- Main layout ---------------------------------------------------------------
 st.markdown("# HOMEBASE")
@@ -447,9 +473,16 @@ with main_tabs[0]:
             # Inject API key into environment for LLM calls
             os.environ["GROQ_API_KEY"] = st.session_state.api_key.strip()
 
+            from agents.orchestrator import _resolve_category_filter
+            _category_filter, _ = _resolve_category_filter(st.session_state.trigger)
+            st.session_state.last_category_filter = _category_filter
+
             g = build_interactive_graph()
             thread_id = str(uuid.uuid4())
-            config = {"configurable": {"thread_id": thread_id}}
+            config = {
+                "configurable": {"thread_id": thread_id},
+                **get_run_metadata(st.session_state.trigger, _category_filter),
+            }
             st.session_state.hitl_graph = g
             st.session_state.thread_config = config
 
@@ -558,8 +591,6 @@ with main_tabs[0]:
 
                 # Persist run to history
                 from tools.history_tools import save_run
-                from agents.orchestrator import _resolve_category_filter
-                cat_filter, _ = _resolve_category_filter(st.session_state.trigger)
                 save_run(
                     trigger=st.session_state.trigger,
                     classified_items=st.session_state.classified_items,
@@ -567,7 +598,7 @@ with main_tabs[0]:
                     hitl_approved=final_state.values.get("hitl_approved", False),
                     hitl_notes=final_state.values.get("hitl_notes", ""),
                     summary_report=st.session_state.summary_report,
-                    category_filter=cat_filter,
+                    category_filter=st.session_state.get("last_category_filter"),
                 )
 
                 st.session_state.phase = "complete"
