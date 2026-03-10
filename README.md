@@ -136,6 +136,7 @@ The UI provides:
 - **Recommendation cards** — tabbed HU/HI and LU/HI views
 - **HITL checkpoint panel** — approve, defer HU/HI and LU/HI items, add notes
 - **Final report** — Groq-generated narrative, word-wrapped prose with highlighted item IDs
+- **Export PDF** — one-click download of the final report as a styled PDF
 - **Registry editor tab** — add, edit, close items; live table with quadrant, status, and stale indicators
 - **Run history tab** — audit trail of all runs; expandable cards with quadrant breakdown, HITL decisions, deferred items, full report, and re-run button
 
@@ -225,7 +226,6 @@ uv run pytest tests/test_hitl.py -v
 - [x] Registry editor tab — add, edit, and close items from the UI (writes to `registry.json`)
 - [x] Auto-generated item IDs with sequential numbering per category
 - [x] Run history tab — persisted audit trail of every completed run with HITL decisions
-- [x] Re-run from history — one-click trigger reload from any past run
 - [x] 131-test suite with global LLM mock (no API key required)
 
 ## Planned Features
@@ -233,7 +233,7 @@ uv run pytest tests/test_hitl.py -v
 - [ ] **Confidence scoring** — LLM returns a confidence level per recommendation
 - [ ] **SQLite backend** — replace `registry.json` with a persistent database
 - [ ] **LangSmith tracing** — one env var enables full visual trace of agent execution
-- [ ] **Export report** — download final report as PDF or markdown from the UI
+- [x] Export report — download final report as styled PDF
 - [ ] **Item detail drawer** — click any item in the classification table to expand full details inline
 - [ ] **Stale items alert panel** — dedicated callout at top of run, not just a badge
 
@@ -247,6 +247,7 @@ uv run pytest tests/test_hitl.py -v
 | `langchain-core>=0.3.0` | LangChain base primitives |
 | `langchain-groq>=0.2.0` | Groq/Llama model integration |
 | `plotly>=5.0.0` | Interactive charts |
+| `reportlab>=4.0.0` | PDF report generation |
 | `python-dotenv>=1.0.0` | Environment variable loading |
 | `streamlit>=1.55.0` | Demo UI |
 | `pytest>=9.0.2` | Test runner (dev) |

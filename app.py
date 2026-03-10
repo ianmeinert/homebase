@@ -173,6 +173,22 @@ div[data-testid="column"]:first-child .stButton > button:hover {
     background: #2ea043;
 }
 
+/* Download button */
+.stDownloadButton > button {
+    background: #161b22 !important;
+    color: #79c0ff !important;
+    border: 1px solid #30363d !important;
+    border-radius: 6px !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 13px !important;
+    transition: all 0.15s !important;
+}
+.stDownloadButton > button:hover {
+    background: #1f3a5f !important;
+    border-color: #79c0ff !important;
+    color: #cae8ff !important;
+}
+
 /* HITL form submit button */
 .stFormSubmitButton > button {
     background: #1f4a1f !important;
@@ -573,6 +589,27 @@ with main_tabs[0]:
     </div>
     """, unsafe_allow_html=True)
 
+            # Export buttons
+            from datetime import datetime as _dt
+            from tools.history_tools import build_report_pdf
+            _ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+            _trigger_slug = st.session_state.trigger.lower().replace(" ", "_")[:30]
+            _filename_base = f"homebase_{_trigger_slug}_{_ts}"
+
+            _pdf_bytes = build_report_pdf(
+                st.session_state.trigger,
+                st.session_state.summary_report,
+            )
+
+            st.download_button(
+                label="Export Report  (.pdf)",
+                data=_pdf_bytes,
+                file_name=f"{_filename_base}.pdf",
+                mime="application/pdf",
+                width="stretch",
+            )
+
+            st.markdown("")
             if st.button("Reset  New Run", width="stretch"):
                 for k in ["phase", "messages", "classified_items", "subagent_results",
                           "hu_hi", "hitl_graph", "thread_config", "summary_report"]:
@@ -674,7 +711,7 @@ with main_tabs[0]:
                             y=[i["impact"] for i in q_items],
                             mode="markers+text",
                             name=q,
-                            marker=dict(color=color, size=10, line=dict(width=1, color="#0d1117")),
+                            marker=dict(color=color, size=12, line=dict(width=1.5, color="#0d1117")),
                             text=[i["id"] for i in q_items],
                             textposition="top center",
                             textfont=dict(size=9, color="#8b949e"),
@@ -691,9 +728,15 @@ with main_tabs[0]:
                     yaxis=dict(title="Impact", range=[-0.05, 1.05],
                         gridcolor="#21262d", zerolinecolor="#21262d",
                         tickfont=dict(size=10)),
-                    legend=dict(bgcolor="#161b22", bordercolor="#21262d", borderwidth=1,
-                        font=dict(size=10)),
-                    margin=dict(l=40, r=20, t=20, b=40),
+                    legend=dict(
+                        bgcolor="#161b22",
+                        bordercolor="#30363d",
+                        borderwidth=1,
+                        font=dict(size=12, color="#e6edf3", family="IBM Plex Sans"),
+                        itemsizing="constant",
+                        itemwidth=40,
+                    ),
+                    margin=dict(l=40, r=120, t=20, b=40),
                     height=300,
                 )
                 st.plotly_chart(fig, width="stretch")
@@ -750,8 +793,14 @@ with main_tabs[0]:
                     margin=dict(l=20, r=20, t=20, b=20),
                     height=300,
                     showlegend=True,
-                    legend=dict(bgcolor="#161b22", bordercolor="#21262d",
-                        borderwidth=1, font=dict(size=10)),
+                    legend=dict(
+                        bgcolor="#161b22",
+                        bordercolor="#30363d",
+                        borderwidth=1,
+                        font=dict(size=12, color="#e6edf3", family="IBM Plex Sans"),
+                        itemsizing="constant",
+                        itemwidth=40,
+                    ),
                 )
                 st.plotly_chart(fig3, width="stretch")
 
@@ -778,9 +827,15 @@ with main_tabs[0]:
                     font=dict(color="#8b949e", family="IBM Plex Sans"),
                     xaxis=dict(title="Score", gridcolor="#21262d", tickfont=dict(size=10)),
                     yaxis=dict(title="Items", gridcolor="#21262d", tickfont=dict(size=10), dtick=1),
-                    legend=dict(bgcolor="#161b22", bordercolor="#21262d",
-                        borderwidth=1, font=dict(size=10)),
-                    margin=dict(l=40, r=20, t=20, b=40),
+                    legend=dict(
+                        bgcolor="#161b22",
+                        bordercolor="#30363d",
+                        borderwidth=1,
+                        font=dict(size=12, color="#e6edf3", family="IBM Plex Sans"),
+                        itemsizing="constant",
+                        itemwidth=40,
+                    ),
+                    margin=dict(l=40, r=120, t=20, b=40),
                     height=300,
                 )
                 st.plotly_chart(fig4, width="stretch")
