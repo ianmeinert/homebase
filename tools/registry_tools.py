@@ -78,3 +78,90 @@ def get_item_detail(item_id: str, registry: list[dict]) -> dict | None:
         if item["id"] == item_id:
             return item
     return None
+
+
+# -- Registry CRUD ----------------------------------------------------------------
+
+CATEGORY_PREFIXES = {
+    "hvac":       "HVA",
+    "plumbing":   "PLM",
+    "electrical": "ELC",
+    "appliance":  "APP",
+    "general":    "GEN",
+}
+
+
+def _next_id(category: str, registry: list[dict]) -> str:
+    """Generate next sequential ID for a given category."""
+    prefix = CATEGORY_PREFIXES.get(category, "GEN")
+    existing = [
+        int(i["id"].split("-")[1])
+        for i in registry
+        if i["id"].startswith(prefix) and i["id"].split("-")[1].isdigit()
+    ]
+    next_num = max(existing, default=0) + 1
+    return f"{prefix}-{next_num:03d}"
+
+
+def save_registry(items: list[dict]) -> None:
+    """Persist registry to disk."""
+    with open(REGISTRY_PATH, "w") as f:
+        json.dump(items, f, indent=4)
+
+
+def add_item(
+    category: str,
+    title: str,
+    description: str,
+    urgency: float,
+    impact: float,
+) -> dict:
+    """
+    Add a new item to the registry.
+    Returns the new item with auto-generated ID.
+    """
+    registry = get_registry()
+    new_item = {
+        "id": _next_id(category, registry),
+        "category": category,
+        "title": title,
+        "description": description,
+        "urgency": round(urgency, 2),
+        "impact": round(impact, 2),
+        "days_since_update": 0,
+        "status": "open",
+    }
+    registry.append(new_item)
+    save_registry(registry)
+    return new_item
+
+
+def update_item(item_id: str, updates: dict) -> dict | None:
+    """
+    Update fields on an existing registry item.
+    Returns updated item or None if not found.
+    """
+    registry = get_registry()
+    for i, item in enumerate(registry):
+        if item["id"] == item_id:
+            # Only allow safe fields to be updated
+            allowed = {"title", "description", "urgency", "impact", "status", "days_since_update"}
+            for k, v in updates.items():
+                if k in allowed:
+                    registry[i][k] = v
+            save_registry(registry)
+            return registry[i]
+    return None
+
+
+def close_item(item_id: str) -> bool:
+    """
+    Mark an item as closed and remove it from the active registry.
+    Returns True if found and closed, False otherwise.
+    """
+    registry = get_registry()
+    updated = [i for i in registry if i["id"] != item_id]
+    if len(updated) == len(registry):
+        return False
+    save_registry(updated)
+    return True

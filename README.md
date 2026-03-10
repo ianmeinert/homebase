@@ -136,6 +136,7 @@ The UI provides:
 - **Recommendation cards** — tabbed HU/HI and LU/HI views
 - **HITL checkpoint panel** — approve, defer HU/HI and LU/HI items, add notes
 - **Final report** — Groq-generated narrative, word-wrapped prose with highlighted item IDs
+- **Registry editor tab** — add, edit, close items; live table with quadrant, status, and stale indicators
 
 ### CLI — Interactive HITL mode
 
@@ -220,11 +221,12 @@ uv run pytest tests/test_hitl.py -v
 - [x] Charts update post-run to reflect active (non-deferred) items
 - [x] Deferred items dimmed in classification table with `[deferred]` label
 - [x] Final report rendered as styled prose (word-wrapped, item IDs highlighted)
+- [x] Registry editor tab — add, edit, and close items from the UI (writes to `registry.json`)
+- [x] Auto-generated item IDs with sequential numbering per category
 - [x] 131-test suite with global LLM mock (no API key required)
 
 ## Planned Features
 
-- [ ] **Registry editor** — add, edit, and close items from the UI without editing `registry.json`
 - [ ] **Run history** — persist past runs with timestamps, triggers, and HITL decisions
 - [ ] **Confidence scoring** — LLM returns a confidence level per recommendation
 - [ ] **SQLite backend** — replace `registry.json` with a persistent database
