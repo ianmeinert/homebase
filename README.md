@@ -2,6 +2,8 @@
 
 ### Multi-Agent Home Management System — LangGraph + Groq
 
+### v1.4.0
+
 A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
 orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
 human-in-the-loop (HITL) checkpoints, and state persistence. The domain is home
@@ -71,7 +73,8 @@ homebase/
 +-- .env.example                  # Environment variable template
 |
 +-- data/
-|   +-- registry.json             # 15 seeded home task items
+|   +-- homebase.db               # SQLite database (auto-created on first run)
+|   +-- registry.json             # Seed data — 15 home task items (read once on DB init)
 |
 +-- graph/
 |   +-- state.py                  # HombaseState TypedDict schema
@@ -82,12 +85,14 @@ homebase/
 |   +-- subagents.py              # 5 specialist subagent nodes
 |
 +-- tools/
-|   +-- registry_tools.py         # get_registry(), classify_registry(), get_item_detail()
-|   +-- llm_tools.py              # Groq-backed recommendation functions
+|   +-- db.py                     # SQLite connection manager, schema, auto-seed
+|   +-- registry_tools.py         # Registry CRUD backed by SQLite
+|   +-- history_tools.py          # Run history persistence backed by SQLite
+|   +-- llm_tools.py              # Groq-backed recommendation functions + confidence scoring
 |   +-- subagent_tools.py         # Rule-based tools (reference/fallback)
 |
 +-- tests/
-    +-- conftest.py               # Global LLM mock — no API key required for tests
+    +-- conftest.py               # Global LLM mock + in-memory SQLite fixture (no API key needed)
     +-- test_registry_tools.py    # 34 tests — classification, stale detection, boundary cases
     +-- test_orchestrator.py      # 20 tests — orchestrator node, report builder
     +-- test_graph.py             # 10 integration tests — graph structure and execution
@@ -116,6 +121,9 @@ GROQ_API_KEY=gsk_...
 
 Get a key at: <https://console.groq.com>
 
+**Database:** `data/homebase.db` is created and seeded automatically on first run.
+No migration step required.
+
 ---
 
 ## Running
@@ -133,12 +141,12 @@ The UI provides:
 - **Quadrant summary** — metric counters with post-run deferred count
 - **Charts** — scatter plot, category breakdown, stale donut, score distribution
 - **Classification table** — sortable by quadrant; deferred items dimmed post-run
-- **Recommendation cards** — tabbed HU/HI and LU/HI views
+- **Recommendation cards** — tabbed HU/HI and LU/HI views with confidence scoring
 - **HITL checkpoint panel** — approve, defer HU/HI and LU/HI items, add notes
 - **Final report** — Groq-generated narrative, word-wrapped prose with highlighted item IDs
-- **Export PDF** — one-click download of the final report as a styled PDF
+- **Export PDF** — print-ready light-theme PDF download of the final report
 - **Registry editor tab** — add, edit, close items; live table with quadrant, status, and stale indicators
-- **Run history tab** — audit trail of all runs; expandable cards with quadrant breakdown, HITL decisions, deferred items, full report, and re-run button
+- **Run history tab** — audit trail of all runs; expandable cards with quadrant breakdown, HITL decisions, deferred items, and full report
 
 ### CLI — Interactive HITL mode
 
@@ -159,6 +167,7 @@ uv run python main.py --no-hitl --trigger "plumbing audit"
 ## Tests
 
 No API key required — all LLM calls are mocked via `conftest.py`.
+All DB calls use an isolated in-memory SQLite instance per test.
 
 ```bash
 uv run pytest
@@ -207,6 +216,7 @@ uv run pytest tests/test_hitl.py -v
 | Stale item detection | SLA breach / aging ticket detection |
 | Deferral with notes | Documented risk acceptance / exception handling |
 | `MemorySaver` checkpoint | Audit trail of human decisions |
+| SQLite backend | Persistent, portable state store |
 
 ---
 
@@ -223,19 +233,31 @@ uv run pytest tests/test_hitl.py -v
 - [x] Charts update post-run to reflect active (non-deferred) items
 - [x] Deferred items dimmed in classification table with `[deferred]` label
 - [x] Final report rendered as styled prose (word-wrapped, item IDs highlighted)
-- [x] Registry editor tab — add, edit, and close items from the UI (writes to `registry.json`)
+- [x] Registry editor tab — add, edit, and close items from the UI
 - [x] Auto-generated item IDs with sequential numbering per category
 - [x] Run history tab — persisted audit trail of every completed run with HITL decisions
-- [x] 131-test suite with global LLM mock (no API key required)
+- [x] Export report — download final report as print-ready PDF
+- [x] Confidence scoring — LLM returns 0.0–1.0 confidence per recommendation, displayed as color-coded progress bar
+- [x] SQLite backend — `registry` and `run_history` tables in `data/homebase.db`; auto-seeded from `registry.json` on first run; in-memory DB fixture in tests
+- [x] 131-test suite with global LLM mock and isolated DB per test
 
 ## Planned Features
 
-- [ ] **Confidence scoring** — LLM returns a confidence level per recommendation
-- [ ] **SQLite backend** — replace `registry.json` with a persistent database
 - [ ] **LangSmith tracing** — one env var enables full visual trace of agent execution
-- [x] Export report — download final report as styled PDF
 - [ ] **Item detail drawer** — click any item in the classification table to expand full details inline
 - [ ] **Stale items alert panel** — dedicated callout at top of run, not just a badge
+
+---
+
+## Version History
+
+| Version | Changes |
+|---|---|
+| v1.4.0 | SQLite backend for registry and run history; in-memory DB test fixture |
+| v1.3.0 | PDF export (print-ready light theme, reportlab) |
+| v1.2.0 | Run history tab with audit trail |
+| v1.1.0 | Plotly charts, trigger-based filtering, post-run chart updates, confidence scoring |
+| v1.0.0 | Initial Groq/Llama integration replacing Gemini |
 
 ---
 
@@ -257,7 +279,8 @@ uv run pytest tests/test_hitl.py -v
 ## Notes
 
 - The free Groq tier has per-minute rate limits. If you see a `429` error,
-  wait 60 seconds and retry. Limits reset every minute.
-  Check usage at: <https://console.groq.com>
+  wait 60 seconds and retry. Check usage at: <https://console.groq.com>
 - `tools/subagent_tools.py` contains the original rule-based recommendation
-  logic and is retained as a reference/fallback
+  logic and is retained as a reference/fallback.
+- `data/registry.json` is only read during initial DB seed. After `homebase.db`
+  exists, all registry reads/writes go through SQLite.
