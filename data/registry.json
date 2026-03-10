@@ -1,0 +1,152 @@
+[
+    {
+        "id": "HVA-001",
+        "category": "hvac",
+        "title": "Replace HVAC air filter",
+        "description": "Filter last changed 6 weeks ago. Unit running longer cycles.",
+        "urgency": 0.8,
+        "impact": 0.7,
+        "days_since_update": 42,
+        "status": "open"
+    },
+    {
+        "id": "HVA-002",
+        "category": "hvac",
+        "title": "Schedule annual AC tune-up",
+        "description": "Summer approaching, no tune-up in 14 months.",
+        "urgency": 0.6,
+        "impact": 0.8,
+        "days_since_update": 20,
+        "status": "open"
+    },
+    {
+        "id": "PLM-001",
+        "category": "plumbing",
+        "title": "Fix slow drain in master bath",
+        "description": "Slow drain for 3 weeks, getting worse.",
+        "urgency": 0.7,
+        "impact": 0.5,
+        "days_since_update": 21,
+        "status": "open"
+    },
+    {
+        "id": "PLM-002",
+        "category": "plumbing",
+        "title": "Inspect water heater anode rod",
+        "description": "Unit is 6 years old, anode rod never inspected.",
+        "urgency": 0.3,
+        "impact": 0.9,
+        "days_since_update": 5,
+        "status": "open"
+    },
+    {
+        "id": "PLM-003",
+        "category": "plumbing",
+        "title": "Leaking exterior hose bib",
+        "description": "Slow drip from backyard spigot. Wastes water, risk of foundation moisture.",
+        "urgency": 0.65,
+        "impact": 0.65,
+        "days_since_update": 18,
+        "status": "open"
+    },
+    {
+        "id": "ELC-001",
+        "category": "electrical",
+        "title": "Replace tripping GFCI outlet in garage",
+        "description": "Outlet trips randomly. Affects garage tools and freezer.",
+        "urgency": 0.75,
+        "impact": 0.8,
+        "days_since_update": 10,
+        "status": "open"
+    },
+    {
+        "id": "ELC-002",
+        "category": "electrical",
+        "title": "Install outdoor motion sensor light",
+        "description": "Back porch has no lighting. Security and convenience issue.",
+        "urgency": 0.4,
+        "impact": 0.5,
+        "days_since_update": 30,
+        "status": "open"
+    },
+    {
+        "id": "APP-001",
+        "category": "appliance",
+        "title": "Dishwasher not draining fully",
+        "description": "Standing water after cycles. Getting worse over 2 weeks.",
+        "urgency": 0.8,
+        "impact": 0.6,
+        "days_since_update": 14,
+        "status": "open"
+    },
+    {
+        "id": "APP-002",
+        "category": "appliance",
+        "title": "Refrigerator ice maker stopped working",
+        "description": "No ice production for 5 days.",
+        "urgency": 0.5,
+        "impact": 0.3,
+        "days_since_update": 5,
+        "status": "open"
+    },
+    {
+        "id": "APP-003",
+        "category": "appliance",
+        "title": "Dryer vent cleaning overdue",
+        "description": "Last cleaned 18 months ago. Fire hazard risk.",
+        "urgency": 0.6,
+        "impact": 0.9,
+        "days_since_update": 60,
+        "status": "open"
+    },
+    {
+        "id": "GEN-001",
+        "category": "general",
+        "title": "Repair fence gate latch",
+        "description": "Gate latch broken, gate swings open freely.",
+        "urgency": 0.7,
+        "impact": 0.6,
+        "days_since_update": 8,
+        "status": "open"
+    },
+    {
+        "id": "GEN-002",
+        "category": "general",
+        "title": "Caulk master bath shower",
+        "description": "Grout and caulk cracking around shower pan. Moisture intrusion risk.",
+        "urgency": 0.5,
+        "impact": 0.75,
+        "days_since_update": 16,
+        "status": "open"
+    },
+    {
+        "id": "GEN-003",
+        "category": "general",
+        "title": "Touch up exterior paint on trim",
+        "description": "Peeling paint on two window frames.",
+        "urgency": 0.2,
+        "impact": 0.3,
+        "days_since_update": 45,
+        "status": "open"
+    },
+    {
+        "id": "GEN-004",
+        "category": "general",
+        "title": "Clean gutters",
+        "description": "Gutters clogged with debris from fall. Overflow risk during rain.",
+        "urgency": 0.65,
+        "impact": 0.7,
+        "days_since_update": 55,
+        "status": "open"
+    },
+    {
+        "id": "GEN-005",
+        "category": "general",
+        "title": "Test smoke and CO detectors",
+        "description": "Last tested 11 months ago.",
+        "urgency": 0.55,
+        "impact": 0.95,
+        "days_since_update": 3,
+        "status": "open"
+    }
+]
