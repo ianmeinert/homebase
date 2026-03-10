@@ -35,18 +35,18 @@ Items with no status update in **14+ days** are flagged as stale regardless of q
 ## Architecture
 
 ```
-orchestrator
+orchestrator  (trigger-based category filter + optional HU/HI-only mode)
     +-- hvac_agent        -+
     +-- plumbing_agent     |
-    +-- electrical_agent   +- (parallel fan-out, one LLM call per agent)
+    +-- electrical_agent   +- (parallel fan-out, one Groq call per agent)
     +-- appliance_agent    |
     +-- general_agent     -+
             |
       hitl_briefing        <- graph pauses here (interrupt_before synthesizer)
             |
-       [human input]       <- approve / defer items / add notes
+       [human input]       <- approve / defer HU/HI + LU/HI items / add notes
             |
-       synthesizer         <- LLM generates narrative, appends HITL decision record
+       synthesizer         <- Groq generates narrative, appends HITL decision record
             |
            END
 ```
@@ -103,13 +103,8 @@ homebase/
 **Requirements:** Python 3.11+, [uv](https://docs.astral.sh/uv/)
 
 ```bash
-# Clone and navigate to project root
 cd homebase
-
-# Install dependencies (including dev)
 uv sync --dev
-
-# Copy environment template and add your Groq API key
 cp .env.example .env
 ```
 
@@ -135,10 +130,12 @@ The UI provides:
 
 - **Prompt library sidebar** — 10 pre-built trigger phrases, one-click load
 - **Live agent log** — color-coded by agent type, streams in real time
-- **Quadrant summary** — metric counters + full classification table
-- **Recommendation cards** — tabbed HU/HI and LU/HI views with action/effort/cost
-- **HITL checkpoint panel** — approve, defer specific items by ID, add notes
-- **Final report** — LLM-generated narrative with HITL decision record appended
+- **Quadrant summary** — metric counters with post-run deferred count
+- **Charts** — scatter plot, category breakdown, stale donut, score distribution
+- **Classification table** — sortable by quadrant; deferred items dimmed post-run
+- **Recommendation cards** — tabbed HU/HI and LU/HI views
+- **HITL checkpoint panel** — approve, defer HU/HI and LU/HI items, add notes
+- **Final report** — Groq-generated narrative, word-wrapped prose with highlighted item IDs
 
 ### CLI — Interactive HITL mode
 
@@ -161,13 +158,8 @@ uv run python main.py --no-hitl --trigger "plumbing audit"
 No API key required — all LLM calls are mocked via `conftest.py`.
 
 ```bash
-# Run full suite
 uv run pytest
-
-# Verbose
 uv run pytest -v
-
-# Single file
 uv run pytest tests/test_hitl.py -v
 ```
 
@@ -186,25 +178,22 @@ uv run pytest tests/test_hitl.py -v
 
 ## Prompt Library
 
-| Trigger | Focus |
+| Trigger | Behavior |
 |---|---|
-| `"what needs immediate attention"` | HU/HI items only |
-| `"weekly home review"` | Full registry analysis |
-| `"morning briefing"` | Daily priority summary |
-| `"fire and safety inspection"` | Safety-critical items |
-| `"plumbing systems audit"` | Plumbing category deep-dive |
-| `"electrical systems inspection"` | Electrical category deep-dive |
-| `"hvac seasonal maintenance check"` | HVAC category deep-dive |
-| `"appliance status review"` | Appliance category deep-dive |
-| `"exterior and grounds walkthrough"` | Exterior / general items |
-| `"full home assessment"` | Comprehensive run |
+| `"what needs immediate attention"` | Full registry, HU/HI items only |
+| `"weekly home review"` | Full registry, all quadrants |
+| `"morning briefing"` | Full registry, all quadrants |
+| `"fire and safety inspection"` | Electrical + appliance + general only |
+| `"plumbing systems audit"` | Plumbing category only |
+| `"electrical systems inspection"` | Electrical category only |
+| `"hvac seasonal maintenance check"` | HVAC category only |
+| `"appliance status review"` | Appliance category only |
+| `"exterior and grounds walkthrough"` | General category only |
+| `"full home assessment"` | Full registry, all quadrants |
 
 ---
 
 ## Stakeholder Bridge
-
-The architecture patterns here are domain-agnostic. The home registry is a
-stand-in for any structured dataset requiring triage, delegation, and human oversight:
 
 | Home Management | Enterprise Equivalent |
 |---|---|
@@ -218,6 +207,34 @@ stand-in for any structured dataset requiring triage, delegation, and human over
 
 ---
 
+## Completed Features
+
+- [x] Orchestrator + quadrant classification + registry tools
+- [x] 5 specialist subagents + parallel fan-out
+- [x] HITL checkpoint + `MemorySaver` + deferral logic (HU/HI + LU/HI)
+- [x] Streamlit UI + prompt library + recommendation cards
+- [x] Groq/Llama 3.3 70B LLM integration (subagents + synthesizer)
+- [x] Trigger-based category filtering (plumbing, electrical, hvac, appliance, general)
+- [x] HU/HI-only mode for immediate/urgent/critical triggers
+- [x] Plotly charts — scatter, category bar, stale donut, score distribution
+- [x] Charts update post-run to reflect active (non-deferred) items
+- [x] Deferred items dimmed in classification table with `[deferred]` label
+- [x] Final report rendered as styled prose (word-wrapped, item IDs highlighted)
+- [x] 131-test suite with global LLM mock (no API key required)
+
+## Planned Features
+
+- [ ] **Registry editor** — add, edit, and close items from the UI without editing `registry.json`
+- [ ] **Run history** — persist past runs with timestamps, triggers, and HITL decisions
+- [ ] **Confidence scoring** — LLM returns a confidence level per recommendation
+- [ ] **SQLite backend** — replace `registry.json` with a persistent database
+- [ ] **LangSmith tracing** — one env var enables full visual trace of agent execution
+- [ ] **Export report** — download final report as PDF or markdown from the UI
+- [ ] **Item detail drawer** — click any item in the classification table to expand full details inline
+- [ ] **Stale items alert panel** — dedicated callout at top of run, not just a badge
+
+---
+
 ## Dependencies
 
 | Package | Purpose |
@@ -225,6 +242,7 @@ stand-in for any structured dataset requiring triage, delegation, and human over
 | `langgraph>=1.0.10` | Agent graph, state management, HITL checkpointing |
 | `langchain-core>=0.3.0` | LangChain base primitives |
 | `langchain-groq>=0.2.0` | Groq/Llama model integration |
+| `plotly>=5.0.0` | Interactive charts |
 | `python-dotenv>=1.0.0` | Environment variable loading |
 | `streamlit>=1.55.0` | Demo UI |
 | `pytest>=9.0.2` | Test runner (dev) |
@@ -237,4 +255,4 @@ stand-in for any structured dataset requiring triage, delegation, and human over
   wait 60 seconds and retry. Limits reset every minute.
   Check usage at: <https://console.groq.com>
 - `tools/subagent_tools.py` contains the original rule-based recommendation
-  logic from the POC and is retained as a reference/fallback
+  logic and is retained as a reference/fallback
