@@ -2,7 +2,7 @@
 
 ### Multi-Agent Home Management System — LangGraph + Groq
 
-### v1.8.0
+### v1.9.0
 
 A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
 orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
@@ -91,7 +91,8 @@ homebase/
 |   +-- history_tools.py          # Run history persistence backed by SQLite
 |   +-- llm_tools.py              # Groq-backed recommendation functions + confidence scoring
 |   +-- tracing.py                # LangSmith tracing init, status check, per-run metadata
-|   +-- update_agent.py           # Natural language registry update agent (single-shot Groq call)
+|   +-- update_agent.py           # Natural language registry update agent + intent router
+|   +-- chart_agent.py            # AI chart generation agent (two-tier: simple spec / complex figure dict)
 |   +-- subagent_tools.py         # Rule-based tools (reference/fallback)
 |
 +-- tests/
@@ -103,6 +104,7 @@ homebase/
     +-- test_subagents.py         # 19 tests — subagent nodes, category filtering
     +-- test_hitl.py              # 31 tests — HITL briefing, deferral logic, interrupt/resume
     +-- test_update_agent.py      # 16 tests — NL interpretation, field validation, apply_update
+    +-- test_chart_agent.py       # 25 tests — chart spec building, complex figure, intent routing
 ```
 
 ---
@@ -162,7 +164,8 @@ The UI provides:
 - **HITL checkpoint panel** — approve, defer HU/HI and LU/HI items, add notes
 - **Final report** — Groq-generated narrative, word-wrapped prose with highlighted item IDs
 - **Export PDF** — print-ready light-theme PDF download of the final report
-- **Unified command field** — single input handles run triggers and registry commands (add, update, close) via hybrid intent routing; Enter or click to submit
+- **Unified command field** — single input handles run triggers, registry commands (add, update, close), and chart requests via hybrid intent routing; Enter or click to submit
+- **AI chart generation** — plain language chart requests routed to `chart_agent`; two-tier LLM pipeline (simple spec or full Plotly figure dict); renders in right column alongside rule-based charts
 - **Run history tab** — audit trail of all runs; expandable cards with quadrant breakdown, HITL decisions, deferred items, and full report
 
 ### CLI — Interactive HITL mode
@@ -192,7 +195,7 @@ uv run pytest -v
 uv run pytest tests/test_hitl.py -v
 ```
 
-**147 tests across 7 files.**
+**172 tests across 8 files.**
 
 | File | Tests | Covers |
 |---|---|---|
@@ -203,6 +206,7 @@ uv run pytest tests/test_hitl.py -v
 | `test_subagents.py` | 19 | Subagent nodes, category filtering, result structure |
 | `test_hitl.py` | 31 | HITL briefing, deferral filtering, interrupt/resume behavior |
 | `test_update_agent.py` | 16 | NL interpretation, field validation, clamping, apply_update path |
+| `test_chart_agent.py` | 25 | Chart spec building, complex figure dict, intent routing, data loading |
 
 ---
 
@@ -253,6 +257,9 @@ for cost modeling, debugging, and enterprise justification.
 | Synthesis narrative | `orchestrator.py` — synthesizer node | 1 per run (post-HITL) |
 | Confidence scoring | `llm_tools.py` — embedded in recommendation call | part of subagent call |
 | Intent routing (ambiguous) | `update_agent.py` — `classify_input()` | 0–1 per command (heuristic first) |
+| Chart complexity classification | `chart_agent.py` — `generate_chart()` | 1 per chart request |
+| Chart spec generation (simple) | `chart_agent.py` — `_build_from_spec()` | 1 per simple chart |
+| Chart figure generation (complex) | `chart_agent.py` — `_build_complex()` | 1 per complex chart |
 | Registry command interpretation | `update_agent.py` — `route_intent`, `interpret_update`, `interpret_add` | 1–2 per command |
 
 **Typical LLM calls per full run:** 7–8 (1 orchestrator + 5 subagents + 1 synthesizer + 0–1 command routing)
@@ -272,7 +279,7 @@ for cost modeling, debugging, and enterprise justification.
 
 ## Planned Features
 
-_Nothing queued — suggest a feature!_
+_File ingest agent (PDF, CSV, image → registry items) — deferred pending Streamlit file widget investigation_
 
 ---
 

@@ -19,7 +19,7 @@ import re as _re
 # Strong run-trigger keywords — if matched and no item ID present, route to graph
 _RUN_KEYWORDS = re.compile(
     r'\b(review|audit|inspect|check|assess|what needs|morning|weekly|daily|briefing|'
-    r'status|run|analyze|scan|immediate|urgent|critical|attention|survey|overview|report)\b',
+    r'status|run|scan|immediate|urgent|critical|attention|survey|overview|report)\b',
     re.IGNORECASE,
 )
 
@@ -33,16 +33,24 @@ _REGISTRY_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# Chart keywords — user wants a visualization
+_CHART_KEYWORDS = re.compile(
+    r'\b(chart|plot|graph|visualize|visualise|histogram|scatter|bar chart|pie chart|'
+    r'line chart|heatmap|show me a chart|show me a graph|trend|distribution)\b',
+    re.IGNORECASE,
+)
+
 AMBIGUOUS_INTENT_PROMPT = """You are a home management assistant command router.
 
 Given a user input, return ONLY a JSON object with:
-- "intent": one of "run", "add", "update", or "close"
+- "intent": one of "run", "add", "update", "close", or "chart"
 
 Definitions:
-- "run": user wants to trigger an agent analysis run (e.g. "weekly review", "check hvac", "what needs attention")
-- "add": user wants to add a new item to the registry
-- "update": user wants to change fields on an existing registry item
-- "close": user wants to close/remove a registry item
+- "run": trigger an agent analysis run (e.g. "weekly review", "check hvac", "what needs attention")
+- "add": add a new item to the registry
+- "update": change fields on an existing registry item
+- "close": close/remove a registry item
+- "chart": generate a chart or visualization from registry or run history data
 
 Return ONLY valid JSON. No explanation, no markdown, no preamble."""
 
@@ -56,8 +64,13 @@ def classify_input(instruction: str, api_key: str | None = None) -> str:
     has_item_id      = bool(_ITEM_ID_PAT.search(instruction))
     has_run_keyword  = bool(_RUN_KEYWORDS.search(instruction))
     has_reg_keyword  = bool(_REGISTRY_KEYWORDS.search(instruction))
+    has_chart_kw     = bool(_CHART_KEYWORDS.search(instruction))
 
-    # Unambiguous: item ID present → registry op (update/close distinguished later)
+    # Unambiguous: chart keyword → chart intent (before run/query to avoid misroute)
+    if has_chart_kw and not has_item_id and not has_reg_keyword:
+        return "chart"
+
+    # Unambiguous: item ID present → registry op
     if has_item_id and not has_run_keyword:
         return "registry"
 
@@ -65,7 +78,7 @@ def classify_input(instruction: str, api_key: str | None = None) -> str:
     if has_run_keyword and not has_item_id and not has_reg_keyword:
         return "run"
 
-    # Unambiguous: registry keyword, no run signals
+    # Unambiguous: registry keyword, no run/query signals
     if has_reg_keyword and not has_run_keyword:
         return "registry"
 
@@ -79,9 +92,10 @@ def classify_input(instruction: str, api_key: str | None = None) -> str:
         raw = response.content.strip().strip("```json").strip("```").strip()
         parsed = json.loads(raw)
         intent = parsed.get("intent", "run")
+        if intent == "chart":
+            return intent
         return "run" if intent == "run" else "registry"
     except Exception:
-        # Safe default: treat as run trigger
         return "run"
 
 

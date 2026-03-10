@@ -234,6 +234,73 @@ div[data-testid="stExpander"] > div[data-testid="stExpanderDetails"] {
     border-top: 1px solid #21262d !important;
     padding: 12px 14px !important;
 }
+/* File uploader — compact dark styling */
+[data-testid="stFileUploader"] {
+    background: #161b22 !important;
+    border: 1px dashed #30363d !important;
+    border-radius: 6px !important;
+    padding: 0 !important;
+}
+[data-testid="stFileUploader"]:hover {
+    border-color: #8b949e !important;
+}
+[data-testid="stFileUploaderDropzone"] {
+    background: transparent !important;
+    padding: 8px 12px !important;
+    min-height: unset !important;
+}
+[data-testid="stFileUploaderDropzoneInstructions"] {
+    display: none !important;
+}
+[data-testid="stFileUploaderDropzone"] > div {
+    gap: 6px !important;
+    flex-direction: row !important;
+    align-items: center !important;
+}
+[data-testid="stFileUploaderDropzone"] svg {
+    width: 14px !important;
+    height: 14px !important;
+    color: #8b949e !important;
+    flex-shrink: 0 !important;
+}
+[data-testid="stFileUploaderDropzone"] button {
+    background: #21262d !important;
+    color: #8b949e !important;
+    border: 1px solid #30363d !important;
+    border-radius: 4px !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 11px !important;
+    padding: 3px 10px !important;
+    min-height: unset !important;
+    height: 26px !important;
+    white-space: nowrap !important;
+}
+[data-testid="stFileUploaderDropzone"] button:hover {
+    background: #30363d !important;
+    border-color: #8b949e !important;
+    color: #e6edf3 !important;
+}
+[data-testid="stFileUploaderDropzone"] small {
+    font-size: 10px !important;
+    color: #484f58 !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+}
+/* Uploaded file pill */
+[data-testid="stFileUploaderFile"] {
+    background: #0d1f0d !important;
+    border: 1px solid #238636 !important;
+    border-radius: 4px !important;
+    padding: 4px 10px !important;
+    font-size: 11px !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    color: #56d364 !important;
+}
+[data-testid="stFileUploaderFile"] button {
+    color: #56d364 !important;
+    background: transparent !important;
+    border: none !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -250,8 +317,10 @@ def init_state():
         "hitl_graph": None,
         "thread_config": None,
         "summary_report": "",
-        "trigger": "weekly home review",
+        "trigger": "",
+        "pending_input": "",       # set by prompt library, consumed by command field
         "api_key": os.environ.get("GROQ_API_KEY", ""),
+        "chart_result":  None,        # {fig, error, instruction} or None
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -368,7 +437,7 @@ with st.sidebar:
 
     for label, trigger in prompts.items():
         if st.button(label, key=f"prompt_{trigger}", width="stretch"):
-            st.session_state.trigger = trigger
+            st.session_state.pending_input = trigger
             st.session_state.phase = "idle"
             st.session_state.messages = []
             st.session_state.classified_items = []
@@ -442,9 +511,10 @@ main_tabs = st.tabs(["DASHBOARD", "RUN HISTORY"])
 
 with main_tabs[0]:
 
-    # -- Unified command input -----------------------------------------------------
+    # -- Unified command input + file upload ---------------------------------------
     from tools.update_agent import classify_input, execute_command as _execute_command
     from tools.registry_tools import get_registry as _get_registry
+    from tools.chart_agent import generate_chart as _generate_chart
 
     _cmd_disabled = st.session_state.phase in ("running", "hitl_wait")
     _no_key       = not st.session_state.api_key.strip()
@@ -454,37 +524,49 @@ with main_tabs[0]:
         with _f_col:
             unified_input = st.text_input(
                 "Command",
-                value=st.session_state.trigger,
+                value=st.session_state.get("pending_input", ""),
                 label_visibility="collapsed",
-                placeholder='Run trigger or registry command  —  e.g. "weekly review"  ·  "mark APP-001 as in progress"  ·  "add leaky faucet, plumbing, urgency 0.8"',
+                placeholder='Run · Registry · Chart  —  e.g. "weekly review"  ·  "mark APP-001 in progress"  ·  "chart urgency by category"',
                 disabled=_cmd_disabled,
             )
         with _b_col:
             submitted = st.form_submit_button(
                 ">  GO",
                 disabled=_cmd_disabled or _no_key,
-                use_container_width=True,
+                width="stretch",
             )
 
     if submitted and unified_input.strip():
-        _input = unified_input.strip()
-        _intent_class = classify_input(_input, api_key=st.session_state.api_key.strip() or None)
+        _input        = unified_input.strip()
+        st.session_state.pending_input = ""
+        _api_key      = st.session_state.api_key.strip() or None
+        _intent_class = classify_input(_input, api_key=_api_key)
 
         if _intent_class == "run":
-            # Fire the agent graph
-            st.session_state.trigger  = _input
-            st.session_state.phase    = "running"
-            st.session_state.messages = []
+            st.session_state.trigger           = _input
+            st.session_state.phase             = "running"
+            st.session_state.messages          = []
             st.session_state.classified_items  = []
             st.session_state.subagent_results  = []
             st.session_state.hu_hi             = []
             st.session_state.summary_report    = ""
             st.rerun()
-        else:
-            # Registry command — execute inline, show result, no rerun needed
-            with st.spinner("Agent processing..."):
-                _result = _execute_command(_input, api_key=st.session_state.api_key.strip() or None)
 
+        elif _intent_class == "chart":
+            # AI chart generation — runs inline, result stored for right column
+            with st.spinner("Chart agent building visualization..."):
+                _fig, _chart_err = _generate_chart(_input, api_key=_api_key)
+            st.session_state.chart_result = {
+                "fig":         _fig,
+                "error":       _chart_err,
+                "instruction": _input,
+            }
+            st.rerun()
+
+        else:
+            # Registry command
+            with st.spinner("Agent processing..."):
+                _result = _execute_command(_input, api_key=_api_key)
             if _result["error"]:
                 st.markdown(
                     f"<div style='background:#1a0a0a;border:1px solid #ff6b6b;border-radius:6px;"
@@ -511,7 +593,6 @@ with main_tabs[0]:
                     f"{_detail}</div>",
                     unsafe_allow_html=True,
                 )
-                # Refresh classified_items if a run is active
                 if st.session_state.classified_items:
                     _fresh = {i["id"]: i for i in _get_registry()}
                     st.session_state.classified_items = [
@@ -781,6 +862,26 @@ with main_tabs[0]:
                     </div>""",
                     unsafe_allow_html=True,
                 )
+
+        # -- AI-generated chart ---------------------------------------------------
+        if st.session_state.chart_result:
+            _cr = st.session_state.chart_result
+            st.markdown("#### AI CHART")
+            st.markdown(
+                f"<p style='font-family:IBM Plex Mono,monospace;font-size:11px;"
+                f"color:#8b949e;margin:-8px 0 8px 0;'>↳ {_cr['instruction']}</p>",
+                unsafe_allow_html=True,
+            )
+            if _cr.get("error"):
+                st.error(f"Chart error: {_cr['error']}")
+            elif _cr.get("fig"):
+                st.plotly_chart(_cr["fig"], width="stretch")
+            _cc1, _cc2 = st.columns([3, 1])
+            with _cc2:
+                if st.button("✕ Clear chart", key="clear_chart"):
+                    st.session_state.chart_result = None
+                    st.rerun()
+            st.divider()
 
         # -- Quadrant summary metrics ----------------------------------------------
         if st.session_state.classified_items:

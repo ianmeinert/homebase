@@ -4,6 +4,17 @@ All notable changes to HOMEBASE are documented here.
 
 ---
 
+## v1.9.0
+
+- AI chart generation — plain language chart requests via unified command field (e.g. "chart urgency by category", "plot item count and stale count over time")
+- `chart_agent.py` — two-tier LLM pipeline: simple requests return a structured spec built deterministically into a Plotly figure; complex requests (multi-series, filtered, comparative) have the LLM return a full Plotly figure dict hydrated via `go.Figure()`
+- Chart intent added to hybrid router — `chart` keyword set triggers classification before run/registry heuristics
+- Run history x-axis fix — `run_label` field (e.g. "Run 1  03-10 14:32") replaces raw timestamp to avoid Plotly datetime axis rendering issues
+- Plotly deprecation fix — all `use_container_width` replaced with `width="stretch"` / `width="content"`
+- Command field now loads empty on page load; prompt library populates via `pending_input` session state key
+- 25 new tests in `test_chart_agent.py` — spec building, complex figure dict, trace type whitelisting, intent routing
+- Ingest agent (v1.9.0 scope originally) deferred pending Streamlit file widget investigation
+
 ## v1.8.0
 
 - Unified NL command field — single input handles run triggers and registry commands via hybrid intent routing

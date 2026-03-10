@@ -102,3 +102,4 @@ def mock_llm(monkeypatch):
     monkeypatch.setattr("tools.db.get_conn", make_conn)
     monkeypatch.setattr("tools.registry_tools.get_conn", make_conn)
     monkeypatch.setattr("tools.history_tools.get_conn", make_conn)
+    monkeypatch.setattr("tools.chart_agent.get_conn", make_conn)

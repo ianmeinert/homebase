@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "homebase"
-version = "1.8.0"
-description = "HOMEBASE  -  Multi-Agent Home Management System (LangGraph + Claude)"
+version = "1.9.0"
+description = "HOMEBASE  -  Multi-Agent Home Management System (LangGraph + Groq)"
 requires-python = ">=3.11"
 
 dependencies = [
