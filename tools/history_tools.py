@@ -1,34 +1,33 @@
 """
-tools/history_tools.py  -  Run history persistence.
+tools/history_tools.py  -  Run history persistence backed by SQLite.
 
-Each completed run is appended to data/run_history.json.
-Records include trigger, classification summary, HITL decisions,
-and the full synthesized report for audit trail purposes.
+Public interface identical to the JSON-backed version.
 """
 
 import json
 import uuid
 from datetime import datetime
-from pathlib import Path
 
-HISTORY_PATH = Path(__file__).parent.parent / "data" / "run_history.json"
-
-
-def _load_history() -> list[dict]:
-    if not HISTORY_PATH.exists():
-        return []
-    with open(HISTORY_PATH) as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return []
+from tools.db import get_conn, row_to_dict
 
 
-def _save_history(records: list[dict]) -> None:
-    HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(HISTORY_PATH, "w") as f:
-        json.dump(records, f, indent=4)
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
+def _record_to_dict(row) -> dict:
+    """Deserialize JSON columns from a run_history row."""
+    d = row_to_dict(row)
+    d["quadrant_summary"] = json.loads(d.get("quadrant_summary") or "{}")
+    d["deferred_items"]   = json.loads(d.get("deferred_items")   or "[]")
+    d["category_filter"]  = json.loads(d["category_filter"]) if d.get("category_filter") else None
+    d["hitl_approved"]    = bool(d["hitl_approved"])
+    return d
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def save_run(
     trigger: str,
@@ -39,67 +38,76 @@ def save_run(
     summary_report: str,
     category_filter: list[str] | None = None,
 ) -> str:
-    """
-    Persist a completed run to history.
-    Returns the run_id of the saved record.
-    """
+    """Persist a completed run. Returns the run_id."""
     from collections import Counter
 
-    q_counts = Counter(i.get("quadrant", "unknown") for i in classified_items)
+    q_counts    = Counter(i.get("quadrant", "unknown") for i in classified_items)
     stale_count = sum(1 for i in classified_items if i.get("days_since_update", 0) >= 14)
 
-    record = {
-        "run_id":          str(uuid.uuid4()),
-        "timestamp":       datetime.now().isoformat(timespec="seconds"),
-        "trigger":         trigger,
-        "category_filter": category_filter,
-        "item_count":      len(classified_items),
-        "quadrant_summary": {
-            "HU/HI": q_counts.get("HU/HI", 0),
-            "HU/LI": q_counts.get("HU/LI", 0),
-            "LU/HI": q_counts.get("LU/HI", 0),
-            "LU/LI": q_counts.get("LU/LI", 0),
+    run_id = str(uuid.uuid4())
+    conn   = get_conn()
+    conn.execute(
+        """
+        INSERT INTO run_history
+            (run_id, timestamp, trigger, category_filter, item_count,
+             quadrant_summary, stale_count, hitl_approved, hitl_notes,
+             deferred_items, summary_report)
+        VALUES
+            (:run_id, :timestamp, :trigger, :category_filter, :item_count,
+             :quadrant_summary, :stale_count, :hitl_approved, :hitl_notes,
+             :deferred_items, :summary_report)
+        """,
+        {
+            "run_id":           run_id,
+            "timestamp":        datetime.now().isoformat(timespec="seconds"),
+            "trigger":          trigger,
+            "category_filter":  json.dumps(category_filter) if category_filter else None,
+            "item_count":       len(classified_items),
+            "quadrant_summary": json.dumps({
+                "HU/HI": q_counts.get("HU/HI", 0),
+                "HU/LI": q_counts.get("HU/LI", 0),
+                "LU/HI": q_counts.get("LU/HI", 0),
+                "LU/LI": q_counts.get("LU/LI", 0),
+            }),
+            "stale_count":   stale_count,
+            "hitl_approved": int(hitl_approved),
+            "hitl_notes":    hitl_notes or "",
+            "deferred_items": json.dumps(deferred_items or []),
+            "summary_report": summary_report or "",
         },
-        "stale_count":    stale_count,
-        "hitl_approved":  hitl_approved,
-        "hitl_notes":     hitl_notes,
-        "deferred_items": deferred_items,
-        "summary_report": summary_report,
-    }
-
-    history = _load_history()
-    history.append(record)
-    _save_history(history)
-    return record["run_id"]
+    )
+    conn.commit()
+    conn.close()
+    return run_id
 
 
 def get_history(limit: int | None = None) -> list[dict]:
-    """
-    Return run history newest-first.
-    Optionally limit to the most recent N records.
-    """
-    history = _load_history()
-    history = sorted(history, key=lambda r: r["timestamp"], reverse=True)
+    """Return run history newest-first, optionally limited to N records."""
+    conn  = get_conn()
+    query = "SELECT * FROM run_history ORDER BY timestamp DESC"
     if limit:
-        return history[:limit]
-    return history
+        query += f" LIMIT {int(limit)}"
+    rows = conn.execute(query).fetchall()
+    conn.close()
+    return [_record_to_dict(r) for r in rows]
 
 
 def delete_run(run_id: str) -> bool:
-    """Delete a single run record by run_id. Returns True if found."""
-    history = _load_history()
-    updated = [r for r in history if r["run_id"] != run_id]
-    if len(updated) == len(history):
-        return False
-    _save_history(updated)
-    return True
+    """Delete a single run record. Returns True if found."""
+    conn   = get_conn()
+    cursor = conn.execute("DELETE FROM run_history WHERE run_id = ?", (run_id,))
+    conn.commit()
+    conn.close()
+    return cursor.rowcount > 0
 
 
 def clear_history() -> int:
     """Delete all run history. Returns count of deleted records."""
-    history = _load_history()
-    count = len(history)
-    _save_history([])
+    conn  = get_conn()
+    count = conn.execute("SELECT COUNT(*) FROM run_history").fetchone()[0]
+    conn.execute("DELETE FROM run_history")
+    conn.commit()
+    conn.close()
     return count
 
 

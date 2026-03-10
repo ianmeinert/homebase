@@ -1,34 +1,53 @@
 """
-tools.py  -  Mocked tool implementations for Phase 1.
-These simulate tool calls an agent would make against real integrations in later phases.
+registry_tools.py  -  Registry CRUD backed by SQLite.
+
+Public interface is identical to the JSON-backed version.
+All callers (agents, app.py, tests) require no changes.
 """
 
-import json
-import os
-from pathlib import Path
+from tools.db import get_conn, row_to_dict
 
-
-REGISTRY_PATH = Path(__file__).parent.parent / "data" / "registry.json"
 URGENCY_THRESHOLD = 0.6
 IMPACT_THRESHOLD = 0.6
 STALE_DAYS_THRESHOLD = 14
 
+CATEGORY_PREFIXES = {
+    "hvac":       "HVA",
+    "plumbing":   "PLM",
+    "electrical": "ELC",
+    "appliance":  "APP",
+    "general":    "GEN",
+}
+
+
+# ---------------------------------------------------------------------------
+# Read
+# ---------------------------------------------------------------------------
 
 def get_registry() -> list[dict]:
-    """
-    Tool: Load the home task registry.
-    Phase 1: reads from local JSON.
-    Future: could pull from Home Assistant, Notion, Airtable, etc.
-    """
-    with open(REGISTRY_PATH) as f:
-        return json.load(f)
+    """Return all open registry items as a list of dicts."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM registry WHERE status = 'open' ORDER BY id"
+    ).fetchall()
+    conn.close()
+    return [row_to_dict(r) for r in rows]
 
+
+def get_item_detail(item_id: str, registry: list[dict]) -> dict | None:
+    """Retrieve full detail for a specific registry item by ID."""
+    for item in registry:
+        if item["id"] == item_id:
+            return item
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Classification (pure logic - no DB I/O)
+# ---------------------------------------------------------------------------
 
 def classify_item(item: dict) -> dict:
-    """
-    Tool: Apply quadrant classification to a single registry item.
-    Mirrors the RMA quadrant framework  -  Urgency x Impact.
-    """
+    """Apply quadrant classification to a single registry item."""
     urgency = item["urgency"]
     impact = item["impact"]
 
@@ -45,11 +64,7 @@ def classify_item(item: dict) -> dict:
 
 
 def classify_registry(items: list[dict]) -> dict:
-    """
-    Tool: Classify all registry items and bucket them by quadrant.
-    Also flags stale items regardless of quadrant.
-    Returns structured buckets.
-    """
+    """Classify all registry items and bucket them by quadrant."""
     classified = [classify_item(i) for i in items]
 
     buckets = {
@@ -58,7 +73,7 @@ def classify_registry(items: list[dict]) -> dict:
         "lu_hi": [],
         "lu_li": [],
         "stale_items": [],
-        "all": classified
+        "all": classified,
     }
 
     for item in classified:
@@ -70,43 +85,43 @@ def classify_registry(items: list[dict]) -> dict:
     return buckets
 
 
-def get_item_detail(item_id: str, registry: list[dict]) -> dict | None:
-    """
-    Tool: Retrieve full detail for a specific registry item by ID.
-    """
-    for item in registry:
-        if item["id"] == item_id:
-            return item
-    return None
+# ---------------------------------------------------------------------------
+# Write
+# ---------------------------------------------------------------------------
 
-
-# -- Registry CRUD ----------------------------------------------------------------
-
-CATEGORY_PREFIXES = {
-    "hvac":       "HVA",
-    "plumbing":   "PLM",
-    "electrical": "ELC",
-    "appliance":  "APP",
-    "general":    "GEN",
-}
-
-
-def _next_id(category: str, registry: list[dict]) -> str:
-    """Generate next sequential ID for a given category."""
+def _next_id(category: str, conn) -> str:
+    """Generate next sequential ID for a given category (all statuses)."""
     prefix = CATEGORY_PREFIXES.get(category, "GEN")
-    existing = [
-        int(i["id"].split("-")[1])
-        for i in registry
-        if i["id"].startswith(prefix) and i["id"].split("-")[1].isdigit()
-    ]
+    rows = conn.execute(
+        "SELECT id FROM registry WHERE id LIKE ?", (f"{prefix}-%",)
+    ).fetchall()
+    existing = []
+    for row in rows:
+        parts = row["id"].split("-")
+        if len(parts) == 2 and parts[1].isdigit():
+            existing.append(int(parts[1]))
     next_num = max(existing, default=0) + 1
     return f"{prefix}-{next_num:03d}"
 
 
 def save_registry(items: list[dict]) -> None:
-    """Persist registry to disk."""
-    with open(REGISTRY_PATH, "w") as f:
-        json.dump(items, f, indent=4)
+    """
+    Bulk-replace the open registry with the provided list.
+    Kept for backwards compatibility. Prefer targeted CRUD functions.
+    """
+    conn = get_conn()
+    conn.execute("DELETE FROM registry WHERE status = 'open'")
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO registry
+            (id, category, title, description, urgency, impact, days_since_update, status)
+        VALUES
+            (:id, :category, :title, :description, :urgency, :impact, :days_since_update, :status)
+        """,
+        items,
+    )
+    conn.commit()
+    conn.close()
 
 
 def add_item(
@@ -116,52 +131,57 @@ def add_item(
     urgency: float,
     impact: float,
 ) -> dict:
-    """
-    Add a new item to the registry.
-    Returns the new item with auto-generated ID.
-    """
-    registry = get_registry()
+    """Add a new item to the registry. Returns the new item dict."""
+    conn = get_conn()
+    new_id = _next_id(category, conn)
     new_item = {
-        "id": _next_id(category, registry),
-        "category": category,
-        "title": title,
-        "description": description,
-        "urgency": round(urgency, 2),
-        "impact": round(impact, 2),
+        "id":                new_id,
+        "category":          category,
+        "title":             title,
+        "description":       description,
+        "urgency":           round(urgency, 2),
+        "impact":            round(impact, 2),
         "days_since_update": 0,
-        "status": "open",
+        "status":            "open",
     }
-    registry.append(new_item)
-    save_registry(registry)
+    conn.execute(
+        """
+        INSERT INTO registry
+            (id, category, title, description, urgency, impact, days_since_update, status)
+        VALUES
+            (:id, :category, :title, :description, :urgency, :impact, :days_since_update, :status)
+        """,
+        new_item,
+    )
+    conn.commit()
+    conn.close()
     return new_item
 
 
 def update_item(item_id: str, updates: dict) -> dict | None:
-    """
-    Update fields on an existing registry item.
-    Returns updated item or None if not found.
-    """
-    registry = get_registry()
-    for i, item in enumerate(registry):
-        if item["id"] == item_id:
-            # Only allow safe fields to be updated
-            allowed = {"title", "description", "urgency", "impact", "status", "days_since_update"}
-            for k, v in updates.items():
-                if k in allowed:
-                    registry[i][k] = v
-            save_registry(registry)
-            return registry[i]
-    return None
+    """Update allowed fields on an existing item. Returns updated item or None."""
+    allowed = {"title", "description", "urgency", "impact", "status", "days_since_update"}
+    safe = {k: v for k, v in updates.items() if k in allowed}
+    if not safe:
+        return None
+
+    conn = get_conn()
+    set_clause = ", ".join(f"{k} = :{k}" for k in safe)
+    safe["_id"] = item_id
+    conn.execute(
+        f"UPDATE registry SET {set_clause} WHERE id = :_id",
+        safe,
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM registry WHERE id = ?", (item_id,)).fetchone()
+    conn.close()
+    return row_to_dict(row) if row else None
 
 
 def close_item(item_id: str) -> bool:
-    """
-    Mark an item as closed and remove it from the active registry.
-    Returns True if found and closed, False otherwise.
-    """
-    registry = get_registry()
-    updated = [i for i in registry if i["id"] != item_id]
-    if len(updated) == len(registry):
-        return False
-    save_registry(updated)
-    return True
+    """Remove an item from the registry. Returns True if found."""
+    conn = get_conn()
+    cursor = conn.execute("DELETE FROM registry WHERE id = ?", (item_id,))
+    conn.commit()
+    conn.close()
+    return cursor.rowcount > 0

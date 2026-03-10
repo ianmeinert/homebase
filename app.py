@@ -280,6 +280,28 @@ def log_class(msg: str) -> str:
     if "synth" in m: return "synth"
     return ""
 
+def confidence_bar(score: float) -> str:
+    """Render a confidence score as a small colored progress bar + label."""
+    pct = int(score * 100)
+    if score >= 0.8:
+        color = "#56d364"
+        label = "HIGH"
+    elif score >= 0.5:
+        color = "#fbbf24"
+        label = "MED"
+    else:
+        color = "#f78166"
+        label = "LOW"
+    return (
+        f"<div style='display:flex;align-items:center;gap:8px;margin-top:6px;'>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:10px;color:#8b949e;width:32px;'>CONF</div>"
+        f"<div style='flex:1;background:#21262d;border-radius:4px;height:6px;'>"
+        f"<div style='width:{pct}%;background:{color};border-radius:4px;height:6px;'></div></div>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:10px;color:{color};width:36px;'>"
+        f"{label} {pct}%</div></div>"
+    )
+
+
 def iter_stream_chunks(stream):
     """
     Normalize LangGraph stream output.
@@ -905,6 +927,7 @@ with main_tabs[0]:
         <div><div class="rec-card-label">COST EST.</div><div class="rec-card-value">{rec['estimated_cost']}</div></div>
       </div>
       <div style="margin-top:8px;padding:6px 8px;background:#0d1117;border-radius:4px;font-size:11px;color:#8b949e;border-left:2px solid #ff6b6b;">{rec['priority_note']}</div>
+      {confidence_bar(rec.get('confidence', 0.7))}
     </div>
     """, unsafe_allow_html=True)
                 else:
@@ -930,6 +953,7 @@ with main_tabs[0]:
         <div><div class="rec-card-label">COST EST.</div><div class="rec-card-value">{rec['estimated_cost']}</div></div>
       </div>
       <div style="margin-top:8px;padding:6px 8px;background:#0d1117;border-radius:4px;font-size:11px;color:#8b949e;border-left:2px solid #6ee7b7;">{rec['priority_note']}</div>
+      {confidence_bar(rec.get('confidence', 0.7))}
     </div>
     """, unsafe_allow_html=True)
                 else:

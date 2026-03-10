@@ -26,6 +26,7 @@ class Recommendation(TypedDict):
     estimated_effort: str
     estimated_cost: str
     priority_note: str
+    confidence: float   # 0.0 - 1.0
     agent: str
 
 
@@ -55,6 +56,7 @@ Respond ONLY with a valid JSON array  -  no preamble, no markdown, no explanatio
 - estimated_effort: string (e.g. "15 min DIY", "1-2 hr contractor")
 - estimated_cost: string (e.g. "$15-40", "$150-250 contractor")
 - priority_note: string (1 sentence on consequence of deferral)
+- confidence: number between 0.0 and 1.0 (your confidence in this recommendation given the available information: 1.0 = highly specific and certain, 0.5 = moderate, 0.3 = limited info)
 - agent: string (copy from input)
 
 Be specific to the item. Reference the urgency, impact, and days_since_update in your reasoning but do not include them verbatim in the output fields."""
@@ -106,12 +108,18 @@ def _call_llm(domain: str, agent_name: str, items: list[dict]) -> list[Recommend
         # Validate and normalize
         results = []
         for rec in parsed:
+            try:
+                conf = float(rec.get("confidence", 0.7))
+                conf = max(0.0, min(1.0, conf))
+            except (TypeError, ValueError):
+                conf = 0.7
             results.append(Recommendation(
                 item_id=rec.get("item_id", ""),
                 action=rec.get("action", "See a specialist."),
                 estimated_effort=rec.get("estimated_effort", "Unknown"),
                 estimated_cost=rec.get("estimated_cost", "Unknown"),
                 priority_note=rec.get("priority_note", ""),
+                confidence=conf,
                 agent=agent_name,
             ))
         return results
@@ -125,6 +133,7 @@ def _call_llm(domain: str, agent_name: str, items: list[dict]) -> list[Recommend
                 estimated_effort="Assess on site",
                 estimated_cost="TBD",
                 priority_note=f"LLM recommendation unavailable ({type(e).__name__}). Manual review required.",
+                confidence=0.0,
                 agent=agent_name,
             )
             for item in items
