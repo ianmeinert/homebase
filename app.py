@@ -438,31 +438,89 @@ st.markdown("# HOMEBASE")
 st.markdown(f"<p style='color:#8b949e;margin-top:-12px;font-size:14px;'>Home Management Multi-Agent System &nbsp;-&nbsp; <span style='font-family:IBM Plex Mono,monospace;color:#79c0ff;'>{st.session_state.trigger}</span></p>", unsafe_allow_html=True)
 st.divider()
 
-main_tabs = st.tabs(["DASHBOARD", "REGISTRY", "RUN HISTORY"])
+main_tabs = st.tabs(["DASHBOARD", "RUN HISTORY"])
 
 with main_tabs[0]:
 
-    # -- Trigger row ---------------------------------------------------------------
-    col_input, col_run = st.columns([4, 1])
-    with col_input:
-        trigger_input = st.text_input(
-            "Trigger",
-            value=st.session_state.trigger,
-            label_visibility="collapsed",
-            placeholder="Enter trigger phrase...",
-        )
-        st.session_state.trigger = trigger_input
+    # -- Unified command input -----------------------------------------------------
+    from tools.update_agent import classify_input, execute_command as _execute_command
+    from tools.registry_tools import get_registry as _get_registry
 
-    with col_run:
-        run_disabled = st.session_state.phase in ("running", "hitl_wait") or not st.session_state.api_key.strip()
-        if st.button(">  RUN", disabled=run_disabled, width="stretch"):
-            st.session_state.phase = "running"
+    _cmd_disabled = st.session_state.phase in ("running", "hitl_wait")
+    _no_key       = not st.session_state.api_key.strip()
+
+    with st.form("unified_cmd_form", clear_on_submit=True):
+        _f_col, _b_col = st.columns([5, 1])
+        with _f_col:
+            unified_input = st.text_input(
+                "Command",
+                value=st.session_state.trigger,
+                label_visibility="collapsed",
+                placeholder='Run trigger or registry command  —  e.g. "weekly review"  ·  "mark APP-001 as in progress"  ·  "add leaky faucet, plumbing, urgency 0.8"',
+                disabled=_cmd_disabled,
+            )
+        with _b_col:
+            submitted = st.form_submit_button(
+                ">  GO",
+                disabled=_cmd_disabled or _no_key,
+                use_container_width=True,
+            )
+
+    if submitted and unified_input.strip():
+        _input = unified_input.strip()
+        _intent_class = classify_input(_input, api_key=st.session_state.api_key.strip() or None)
+
+        if _intent_class == "run":
+            # Fire the agent graph
+            st.session_state.trigger  = _input
+            st.session_state.phase    = "running"
             st.session_state.messages = []
-            st.session_state.classified_items = []
-            st.session_state.subagent_results = []
-            st.session_state.hu_hi = []
-            st.session_state.summary_report = ""
+            st.session_state.classified_items  = []
+            st.session_state.subagent_results  = []
+            st.session_state.hu_hi             = []
+            st.session_state.summary_report    = ""
             st.rerun()
+        else:
+            # Registry command — execute inline, show result, no rerun needed
+            with st.spinner("Agent processing..."):
+                _result = _execute_command(_input, api_key=st.session_state.api_key.strip() or None)
+
+            if _result["error"]:
+                st.markdown(
+                    f"<div style='background:#1a0a0a;border:1px solid #ff6b6b;border-radius:6px;"
+                    f"padding:10px 14px;font-size:12px;color:#ff6b6b;font-family:IBM Plex Mono,monospace;'>"
+                    f"{_result['error']}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                _intent   = _result["intent"].upper()
+                _item_id  = _result["item_id"] or ""
+                _changes  = _result["changes"]
+                _border   = {"ADD": "#238636", "UPDATE": "#1f6feb", "CLOSE": "#8b949e"}.get(_intent, "#238636")
+                _label_c  = {"ADD": "#56d364", "UPDATE": "#79c0ff", "CLOSE": "#8b949e"}.get(_intent, "#56d364")
+                _header   = f"{'ADDED' if _intent == 'ADD' else 'CLOSED' if _intent == 'CLOSE' else 'UPDATED'} {_item_id}"
+                _detail   = "".join(
+                    f"<div style='margin:2px 0;'><span style='color:#8b949e;'>{k}&nbsp;</span>"
+                    f"<span style='color:{_label_c};font-weight:600;'>{v}</span></div>"
+                    for k, v in _changes.items() if k != "_error"
+                ) or "<div style='color:#8b949e;'>No changes recorded.</div>"
+                st.markdown(
+                    f"<div style='background:#0d1117;border:1px solid {_border};border-radius:6px;"
+                    f"padding:12px 16px;font-family:IBM Plex Mono,monospace;font-size:12px;'>"
+                    f"<div style='color:{_label_c};margin-bottom:8px;font-weight:600;'>{_header}</div>"
+                    f"{_detail}</div>",
+                    unsafe_allow_html=True,
+                )
+                # Refresh classified_items if a run is active
+                if st.session_state.classified_items:
+                    _fresh = {i["id"]: i for i in _get_registry()}
+                    st.session_state.classified_items = [
+                        _fresh.get(i["id"], i)
+                        for i in st.session_state.classified_items
+                        if i["id"] in _fresh
+                    ]
+    elif submitted and _no_key:
+        st.warning("Enter your Groq API key in the sidebar first.")
 
     st.divider()
 
@@ -677,89 +735,6 @@ with main_tabs[0]:
                                            "idle" if k == "phase" else ""
                 st.rerun()
 
-        # -- UPDATE ITEM panel (available post-run and during hitl_wait) -----------
-        if st.session_state.phase in ("complete", "hitl_wait") and st.session_state.classified_items:
-            st.divider()
-            st.markdown("#### UPDATE ITEM")
-            st.markdown(
-                "<p style='font-size:12px;color:#8b949e;margin:-8px 0 12px 0;'>"
-                "Ask the agent to update a registry item using natural language.</p>",
-                unsafe_allow_html=True,
-            )
-
-            from tools.update_agent import apply_update
-            from tools.registry_tools import get_registry
-
-            item_options = {
-                f"[{i['id']}] {i['title']}": i
-                for i in sorted(
-                    st.session_state.classified_items,
-                    key=lambda x: (["HU/HI","HU/LI","LU/HI","LU/LI"].index(x["quadrant"]))
-                )
-            }
-
-            ua_col1, ua_col2 = st.columns([1, 2])
-            with ua_col1:
-                selected_label = st.selectbox(
-                    "Item",
-                    options=list(item_options.keys()),
-                    label_visibility="collapsed",
-                    key="update_item_select",
-                )
-            with ua_col2:
-                instruction = st.text_input(
-                    "Instruction",
-                    placeholder='e.g. "mark as resolved", "raise urgency to 0.9, getting worse", "reset the clock"',
-                    label_visibility="collapsed",
-                    key="update_item_instruction",
-                )
-
-            if st.button("Ask Agent to Update", key="update_item_submit", width="stretch"):
-                if instruction.strip():
-                    selected_item = item_options[selected_label]
-                    with st.spinner(f"Agent interpreting instruction for {selected_item['id']}..."):
-                        updated, changes = apply_update(
-                            selected_item["id"], selected_item, instruction.strip(),
-                            api_key=st.session_state.api_key.strip() or None,
-                        )
-                    if "_error" in changes:
-                        st.markdown(
-                            f"<div style='background:#1a0a0a;border:1px solid #ff6b6b;border-radius:6px;"
-                            f"padding:10px 14px;font-size:12px;color:#ff6b6b;font-family:IBM Plex Mono,monospace;'>"
-                            f"Agent error: {changes['_error']}</div>",
-                            unsafe_allow_html=True,
-                        )
-                    elif not changes:
-                        st.markdown(
-                            "<div style='background:#161b22;border:1px solid #30363d;border-radius:6px;"
-                            "padding:10px 14px;font-size:12px;color:#8b949e;font-family:IBM Plex Mono,monospace;'>"
-                            "Agent could not infer any changes from that instruction. Try being more specific.</div>",
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        change_lines = "".join(
-                            f"<div style='margin:2px 0;'>"
-                            f"<span style='color:#8b949e;'>{k}&nbsp;</span>"
-                            f"<span style='color:#56d364;font-weight:600;'>{v}</span></div>"
-                            for k, v in changes.items()
-                        )
-                        st.markdown(
-                            f"<div style='background:#0d1117;border:1px solid #238636;border-radius:6px;"
-                            f"padding:12px 16px;font-family:IBM Plex Mono,monospace;font-size:12px;'>"
-                            f"<div style='color:#56d364;margin-bottom:8px;font-weight:600;'>"
-                            f"UPDATED {selected_item['id']}</div>"
-                            f"{change_lines}</div>",
-                            unsafe_allow_html=True,
-                        )
-                        # Refresh classified_items list with updated values
-                        fresh_registry = {i["id"]: i for i in get_registry()}
-                        st.session_state.classified_items = [
-                            fresh_registry.get(i["id"], i)
-                            for i in st.session_state.classified_items
-                        ]
-                else:
-                    st.warning("Enter an instruction first.")
-
         # -- IDLE ------------------------------------------------------------------
         else:
             st.markdown("""
@@ -772,6 +747,40 @@ with main_tabs[0]:
 
     # -- RIGHT: Quadrant table + Rec cards ----------------------------------------
     with right_col:
+
+        # -- Stale items alert panel -----------------------------------------------
+        if st.session_state.classified_items:
+            stale_items = [
+                i for i in st.session_state.classified_items
+                if i.get("days_since_update", 0) >= 14
+            ]
+            if stale_items:
+                stale_sorted = sorted(stale_items, key=lambda x: -x["days_since_update"])
+                Q_STALE_COLORS = {"HU/HI": "#ff6b6b", "HU/LI": "#fbbf24", "LU/HI": "#6ee7b7", "LU/LI": "#93c5fd"}
+                rows_html = ""
+                for item in stale_sorted:
+                    q_color = Q_STALE_COLORS.get(item["quadrant"], "#8b949e")
+                    rows_html += (
+                        f"<div style='display:flex;justify-content:space-between;align-items:center;"
+                        f"padding:5px 0;border-bottom:1px solid #21262d;'>"
+                        f"<span style='font-family:IBM Plex Mono,monospace;font-size:11px;color:{q_color};width:76px;flex-shrink:0;'>[{item['id']}]</span>"
+                        f"<span style='font-size:11px;color:#e6edf3;flex:1;margin:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>{item['title']}</span>"
+                        f"<span style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#fbbf24;flex-shrink:0;'>{item['days_since_update']}d</span>"
+                        f"</div>"
+                    )
+                st.markdown(
+                    f"""<div style='background:#1a1200;border:1px solid #7d4e00;border-left:3px solid #fbbf24;
+                        border-radius:6px;padding:12px 14px;margin-bottom:16px;'>
+                      <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;'>
+                        <span style='font-family:IBM Plex Mono,monospace;font-size:11px;font-weight:600;
+                          color:#fbbf24;letter-spacing:1px;'>STALE ITEMS ALERT</span>
+                        <span style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#7d4e00;'>
+                          {len(stale_items)} item{"s" if len(stale_items) != 1 else ""} &nbsp;·&nbsp; 14+ days without update</span>
+                      </div>
+                      {rows_html}
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
 
         # -- Quadrant summary metrics ----------------------------------------------
         if st.session_state.classified_items:
@@ -1155,168 +1164,9 @@ with main_tabs[0]:
     </div>
     """, unsafe_allow_html=True)
 
-# -- REGISTRY tab --------------------------------------------------------------
-with main_tabs[1]:
-    from tools.registry_tools import get_registry, add_item, update_item, close_item, classify_item
-
-    st.markdown("#### REGISTRY EDITOR")
-    st.markdown("<p style='color:#8b949e;font-size:13px;margin-top:-8px;'>Add, edit, or close items in the home task registry.</p>", unsafe_allow_html=True)
-
-    CATEGORIES = ["hvac", "plumbing", "electrical", "appliance", "general"]
-    STATUSES   = ["open", "in_progress", "closed"]
-
-    reg_tab_add, reg_tab_edit, reg_tab_close = st.tabs(["ADD ITEM", "EDIT ITEM", "CLOSE ITEM"])
-
-    # -- ADD -------------------------------------------------------------------
-    with reg_tab_add:
-        st.markdown("##### New Item")
-        with st.form("form_add"):
-            a_title    = st.text_input("Title", placeholder="Short description of the issue")
-            a_desc     = st.text_area("Description", placeholder="Additional context...", height=80)
-            a_cat      = st.selectbox("Category", CATEGORIES)
-            a_col1, a_col2 = st.columns(2)
-            a_urgency  = a_col1.slider("Urgency", 0.0, 1.0, 0.5, 0.05)
-            a_impact   = a_col2.slider("Impact",  0.0, 1.0, 0.5, 0.05)
-            add_btn    = st.form_submit_button("Add Item", width="stretch")
-
-        if add_btn:
-            if not a_title.strip():
-                st.error("Title is required.")
-            else:
-                new_item = add_item(
-                    category=a_cat,
-                    title=a_title.strip(),
-                    description=a_desc.strip(),
-                    urgency=a_urgency,
-                    impact=a_impact,
-                )
-                classified = classify_item(new_item)
-                st.success(
-                    f"Added **{new_item['id']}** — classified as **{classified['quadrant']}**"
-                )
-
-    # -- EDIT ------------------------------------------------------------------
-    with reg_tab_edit:
-        st.markdown("##### Edit Existing Item")
-        registry_now = get_registry()
-        item_options = {f"{i['id']}  —  {i['title']}": i["id"] for i in registry_now}
-
-        if not item_options:
-            st.info("No items in registry.")
-        else:
-            selected_label = st.selectbox("Select item", list(item_options.keys()), key="edit_select")
-            selected_id    = item_options[selected_label]
-            selected_item  = next(i for i in registry_now if i["id"] == selected_id)
-
-            with st.form("form_edit"):
-                e_title  = st.text_input("Title",       value=selected_item["title"])
-                e_desc   = st.text_area( "Description", value=selected_item["description"], height=80)
-                e_status = st.selectbox("Status", STATUSES, index=STATUSES.index(selected_item.get("status","open")))
-                e_col1, e_col2 = st.columns(2)
-                e_urgency = e_col1.slider("Urgency", 0.0, 1.0, float(selected_item["urgency"]), 0.05)
-                e_impact  = e_col2.slider("Impact",  0.0, 1.0, float(selected_item["impact"]),  0.05)
-                e_days    = st.number_input("Days since update", min_value=0, value=int(selected_item.get("days_since_update", 0)))
-                edit_btn  = st.form_submit_button("Save Changes", width="stretch")
-
-            if edit_btn:
-                updated = update_item(selected_id, {
-                    "title":             e_title.strip(),
-                    "description":       e_desc.strip(),
-                    "status":            e_status,
-                    "urgency":           round(e_urgency, 2),
-                    "impact":            round(e_impact,  2),
-                    "days_since_update": int(e_days),
-                })
-                if updated:
-                    classified = classify_item(updated)
-                    st.success(f"Updated **{selected_id}** — now classified as **{classified['quadrant']}**")
-                else:
-                    st.error(f"Item {selected_id} not found.")
-
-    # -- CLOSE -----------------------------------------------------------------
-    with reg_tab_close:
-        st.markdown("##### Close / Remove Item")
-        registry_now2 = get_registry()
-        close_options = {f"{i['id']}  —  {i['title']}": i["id"] for i in registry_now2}
-
-        if not close_options:
-            st.info("No items in registry.")
-        else:
-            close_label = st.selectbox("Select item to close", list(close_options.keys()), key="close_select")
-            close_id    = close_options[close_label]
-            close_item_data = next(i for i in registry_now2 if i["id"] == close_id)
-
-            st.markdown(f"""
-<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px 16px;margin:8px 0;">
-  <p style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b949e;margin:0 0 4px 0;">{close_item_data['id']} &nbsp;|&nbsp; {close_item_data['category']}</p>
-  <p style="font-size:13px;color:#e6edf3;margin:0 0 4px 0;font-weight:600;">{close_item_data['title']}</p>
-  <p style="font-size:12px;color:#8b949e;margin:0;">Urgency: {close_item_data['urgency']} &nbsp;/&nbsp; Impact: {close_item_data['impact']}</p>
-</div>
-""", unsafe_allow_html=True)
-
-            if st.button(f"Close & Remove {close_id}", width="stretch"):
-                if close_item(close_id):
-                    st.success(f"**{close_id}** removed from registry.")
-                    st.rerun()
-                else:
-                    st.error(f"Could not close {close_id}.")
-
-    # -- CURRENT REGISTRY TABLE ------------------------------------------------
-    st.divider()
-    st.markdown("#### CURRENT REGISTRY")
-    registry_display = get_registry()
-
-    if not registry_display:
-        st.info("Registry is empty.")
-    else:
-        from tools.registry_tools import classify_item as _ci
-        rows = ""
-        Q_BADGE = {
-            "HU/HI": "background:#3d1f1f;color:#ff6b6b;",
-            "HU/LI": "background:#3d2e00;color:#fbbf24;",
-            "LU/HI": "background:#1a3d2b;color:#6ee7b7;",
-            "LU/LI": "background:#1a2233;color:#93c5fd;",
-        }
-        STATUS_COLOR = {"open": "#56d364", "in_progress": "#fbbf24", "closed": "#8b949e"}
-        for item in sorted(registry_display, key=lambda x: x["category"]):
-            classified = _ci(item)
-            q = classified["quadrant"]
-            q_style = Q_BADGE.get(q, "")
-            stale_flag = " <span style='background:#3d2e00;color:#fbbf24;padding:1px 5px;border-radius:3px;font-size:10px;'>STALE</span>" if item.get("days_since_update", 0) >= 14 else ""
-            s_color = STATUS_COLOR.get(item.get("status", "open"), "#8b949e")
-            rows += f"""
-<tr style="border-bottom:1px solid #21262d;">
-  <td style="padding:6px 8px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:#8b949e;">{item['id']}</td>
-  <td style="padding:6px 8px;font-size:12px;color:#e6edf3;">{item['title']}{stale_flag}</td>
-  <td style="padding:6px 8px;font-size:11px;color:#8b949e;">{item['category']}</td>
-  <td style="padding:6px 8px;"><span style="padding:2px 7px;border-radius:4px;font-size:10px;font-family:'IBM Plex Mono',monospace;{q_style}">{q}</span></td>
-  <td style="padding:6px 8px;font-size:11px;color:{s_color};">{item.get('status','open')}</td>
-  <td style="padding:6px 8px;font-size:11px;color:#8b949e;text-align:center;">{item['urgency']:.2f} / {item['impact']:.2f}</td>
-  <td style="padding:6px 8px;font-size:11px;color:#8b949e;text-align:center;">{item.get('days_since_update',0)}d</td>
-</tr>"""
-
-        st.markdown(f"""
-<div style="overflow-y:auto;max-height:400px;border:1px solid #21262d;border-radius:6px;">
-<table style="width:100%;border-collapse:collapse;">
-<thead>
-<tr style="background:#161b22;border-bottom:1px solid #30363d;position:sticky;top:0;">
-  <th style="padding:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b949e;text-align:left;">ID</th>
-  <th style="padding:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b949e;text-align:left;">ITEM</th>
-  <th style="padding:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b949e;text-align:left;">CAT</th>
-  <th style="padding:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b949e;text-align:left;">QUADRANT</th>
-  <th style="padding:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b949e;text-align:left;">STATUS</th>
-  <th style="padding:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b949e;text-align:center;">U / I</th>
-  <th style="padding:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8b949e;text-align:center;">AGE</th>
-</tr>
-</thead>
-<tbody>{rows}</tbody>
-</table>
-</div>
-<p style="font-size:11px;color:#8b949e;margin:6px 0 0 0;">{len(registry_display)} items</p>
-""", unsafe_allow_html=True)
 
 # -- RUN HISTORY tab -----------------------------------------------------------
-with main_tabs[2]:
+with main_tabs[1]:
     from tools.history_tools import get_history, delete_run, clear_history
 
     st.markdown("#### RUN HISTORY")

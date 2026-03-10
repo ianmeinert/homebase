@@ -2,7 +2,7 @@
 
 ### Multi-Agent Home Management System — LangGraph + Groq
 
-### v1.6.0
+### v1.8.0
 
 A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
 orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
@@ -162,7 +162,7 @@ The UI provides:
 - **HITL checkpoint panel** — approve, defer HU/HI and LU/HI items, add notes
 - **Final report** — Groq-generated narrative, word-wrapped prose with highlighted item IDs
 - **Export PDF** — print-ready light-theme PDF download of the final report
-- **Registry editor tab** — add, edit, close items; live table with quadrant, status, and stale indicators
+- **Unified command field** — single input handles run triggers and registry commands (add, update, close) via hybrid intent routing; Enter or click to submit
 - **Run history tab** — audit trail of all runs; expandable cards with quadrant breakdown, HITL decisions, deferred items, and full report
 
 ### CLI — Interactive HITL mode
@@ -239,34 +239,40 @@ uv run pytest tests/test_hitl.py -v
 
 ---
 
-## Completed Features
+## Agent-Contributed vs Rule-Based
 
-- [x] Orchestrator + quadrant classification + registry tools
-- [x] 5 specialist subagents + parallel fan-out
-- [x] HITL checkpoint + `MemorySaver` + deferral logic (HU/HI + LU/HI)
-- [x] Streamlit UI + prompt library + recommendation cards
-- [x] Groq/Llama 3.3 70B LLM integration (subagents + synthesizer)
-- [x] Trigger-based category filtering (plumbing, electrical, hvac, appliance, general)
-- [x] HU/HI-only mode for immediate/urgent/critical triggers
-- [x] Plotly charts — scatter, category bar, stale donut, score distribution
-- [x] Charts update post-run to reflect active (non-deferred) items
-- [x] Deferred items dimmed in classification table with `[deferred]` label
-- [x] Final report rendered as styled prose (word-wrapped, item IDs highlighted)
-- [x] Registry editor tab — add, edit, and close items from the UI
-- [x] Auto-generated item IDs with sequential numbering per category
-- [x] Run history tab — persisted audit trail of every completed run with HITL decisions
-- [x] Export report — download final report as print-ready PDF
-- [x] Confidence scoring — LLM returns 0.0–1.0 confidence per recommendation, displayed as color-coded progress bar
-- [x] SQLite backend — `registry` and `run_history` tables in `data/homebase.db`; auto-seeded from `registry.json` on first run; in-memory DB fixture in tests
-- [x] 147-test suite with global LLM mock, isolated in-memory DB per test, and update agent coverage
-- [x] LangSmith tracing — `LANGCHAIN_API_KEY` in `.env` activates full trace; sidebar shows live status; runs tagged by trigger and category filter
-- [x] Item detail drawer — click any row in the classification table to expand full item details (description, urgency/impact bars, quadrant, category, stale age, status)
-- [x] Natural language item updates — UPDATE ITEM panel post-run; agent interprets free-text instructions and writes changes to SQLite; available during HITL wait and after completion
-- [x] API key carried in graph state — survives MemorySaver checkpoint across HITL interrupt/resume; no env var timing dependency
+Understanding where LLM reasoning is applied vs deterministic logic is important
+for cost modeling, debugging, and enterprise justification.
+
+### LLM / Agent-Driven
+
+| Component | Where | Model Calls |
+|---|---|---|
+| Quadrant classification | `orchestrator.py` | 1 per run |
+| Specialist recommendations | `subagents.py` (×5 parallel) | 1 per agent per run |
+| Synthesis narrative | `orchestrator.py` — synthesizer node | 1 per run (post-HITL) |
+| Confidence scoring | `llm_tools.py` — embedded in recommendation call | part of subagent call |
+| Intent routing (ambiguous) | `update_agent.py` — `classify_input()` | 0–1 per command (heuristic first) |
+| Registry command interpretation | `update_agent.py` — `route_intent`, `interpret_update`, `interpret_add` | 1–2 per command |
+
+**Typical LLM calls per full run:** 7–8 (1 orchestrator + 5 subagents + 1 synthesizer + 0–1 command routing)
+
+### Rule-Based / Deterministic
+
+| Component | Logic |
+|---|---|
+| Stale detection | `days_since_update >= 14` — no LLM |
+| Trigger → category filter | Keyword map in `orchestrator.py` — no LLM |
+| HU/HI-only mode | Trigger keyword list — no LLM |
+| HITL deferral filtering | Set operations on item IDs — no LLM |
+| Item ID generation | Sequential counter per category prefix — no LLM |
+| Command intent (unambiguous) | Regex + keyword heuristic in `update_agent.py` — no LLM |
+| Chart rendering | Plotly, derived from classified state — no LLM |
+| PDF export | reportlab template — no LLM |
 
 ## Planned Features
 
-- [ ] **Stale items alert panel** — dedicated callout at top of run, not just a badge
+_Nothing queued — suggest a feature!_
 
 ---
 
@@ -274,6 +280,8 @@ uv run pytest tests/test_hitl.py -v
 
 | Version | Changes |
 |---|---|
+| v1.8.0 | Unified NL command field; hybrid intent router; CRUD consolidated to dashboard; Registry tab removed |
+| v1.7.0 | Stale items alert panel; update agent prompt hardening |
 | v1.6.0 | Item detail drawer; natural language item updates; API key in graph state |
 | v1.5.0 | LangSmith tracing integration; per-run tags and metadata; sidebar status badge |
 | v1.4.0 | SQLite backend for registry and run history; in-memory DB test fixture |
