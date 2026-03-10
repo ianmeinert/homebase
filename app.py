@@ -172,6 +172,22 @@ div[data-testid="column"]:first-child .stButton > button {
 div[data-testid="column"]:first-child .stButton > button:hover {
     background: #2ea043;
 }
+
+/* HITL form submit button */
+.stFormSubmitButton > button {
+    background: #1f4a1f !important;
+    color: #56d364 !important;
+    border: 1px solid #238636 !important;
+    border-radius: 6px !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 13px !important;
+    transition: all 0.15s !important;
+}
+.stFormSubmitButton > button:hover {
+    background: #238636 !important;
+    border-color: #2ea043 !important;
+    color: white !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
