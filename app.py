@@ -188,6 +188,32 @@ div[data-testid="column"]:first-child .stButton > button:hover {
     border-color: #2ea043 !important;
     color: white !important;
 }
+
+/* Expander overrides */
+div[data-testid="stExpander"] {
+    background: #161b22 !important;
+    border: 1px solid #21262d !important;
+    border-radius: 8px !important;
+}
+div[data-testid="stExpander"] summary {
+    background: #161b22 !important;
+    color: #e6edf3 !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 12px !important;
+    border-radius: 8px !important;
+    padding: 10px 14px !important;
+}
+div[data-testid="stExpander"] summary:hover {
+    background: #21262d !important;
+}
+div[data-testid="stExpander"] summary svg {
+    fill: #8b949e !important;
+}
+div[data-testid="stExpander"] > div[data-testid="stExpanderDetails"] {
+    background: #161b22 !important;
+    border-top: 1px solid #21262d !important;
+    padding: 12px 14px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -196,6 +222,7 @@ div[data-testid="column"]:first-child .stButton > button:hover {
 def init_state():
     defaults = {
         "phase": "idle",           # idle | running | hitl_wait | complete
+        "active_tab": 0,           # 0=dashboard, 1=registry, 2=history
         "messages": [],
         "classified_items": [],
         "subagent_results": [],
@@ -341,7 +368,7 @@ st.markdown("# HOMEBASE")
 st.markdown(f"<p style='color:#8b949e;margin-top:-12px;font-size:14px;'>Home Management Multi-Agent System &nbsp;-&nbsp; <span style='font-family:IBM Plex Mono,monospace;color:#79c0ff;'>{st.session_state.trigger}</span></p>", unsafe_allow_html=True)
 st.divider()
 
-main_tabs = st.tabs(["DASHBOARD", "REGISTRY"])
+main_tabs = st.tabs(["DASHBOARD", "REGISTRY", "RUN HISTORY"])
 
 with main_tabs[0]:
 
@@ -490,6 +517,21 @@ with main_tabs[0]:
                     if i["id"] not in deferred
                 ]
                 st.session_state.messages = resume_logs
+
+                # Persist run to history
+                from tools.history_tools import save_run
+                from agents.orchestrator import _resolve_category_filter
+                cat_filter, _ = _resolve_category_filter(st.session_state.trigger)
+                save_run(
+                    trigger=st.session_state.trigger,
+                    classified_items=st.session_state.classified_items,
+                    deferred_items=list(deferred),
+                    hitl_approved=final_state.values.get("hitl_approved", False),
+                    hitl_notes=final_state.values.get("hitl_notes", ""),
+                    summary_report=st.session_state.summary_report,
+                    category_filter=cat_filter,
+                )
+
                 st.session_state.phase = "complete"
                 st.rerun()
 
@@ -1006,3 +1048,131 @@ with main_tabs[1]:
 </div>
 <p style="font-size:11px;color:#8b949e;margin:6px 0 0 0;">{len(registry_display)} items</p>
 """, unsafe_allow_html=True)
+
+# -- RUN HISTORY tab -----------------------------------------------------------
+with main_tabs[2]:
+    from tools.history_tools import get_history, delete_run, clear_history
+
+    st.markdown("#### RUN HISTORY")
+    st.markdown("<p style='color:#8b949e;font-size:13px;margin-top:-8px;'>Audit trail of completed agent runs and HITL decisions.</p>", unsafe_allow_html=True)
+
+    history = get_history()
+
+    if not history:
+        st.markdown("""
+<div style="background:#161b22;border:1px solid #21262d;border-radius:8px;
+            padding:32px;text-align:center;margin-top:8px;">
+<p style="color:#30363d;font-size:24px;margin:0;">*</p>
+<p style="color:#8b949e;font-size:13px;margin:8px 0 0 0;">No runs recorded yet. Complete a run on the Dashboard tab.</p>
+</div>
+""", unsafe_allow_html=True)
+    else:
+        # Summary bar
+        h_col1, h_col2, h_col3, h_col4 = st.columns(4)
+        h_col1.metric("Total Runs", len(history))
+        h_col2.metric("Approved", sum(1 for r in history if r["hitl_approved"]))
+        h_col3.metric("With Deferrals", sum(1 for r in history if r["deferred_items"]))
+        h_col4.metric("Items Reviewed", sum(r["item_count"] for r in history))
+
+        st.markdown("")
+
+        # Run cards
+        for rec in history:
+            ts = rec["timestamp"].replace("T", "  ")
+            approved_color = "#56d364" if rec["hitl_approved"] else "#f78166"
+            approved_label = "APPROVED" if rec["hitl_approved"] else "REJECTED"
+            deferred_label = f"{len(rec['deferred_items'])} deferred" if rec["deferred_items"] else "none deferred"
+            filter_label   = ", ".join(rec["category_filter"]) if rec["category_filter"] else "full registry"
+            q = rec["quadrant_summary"]
+
+            with st.expander(f"{ts}   |   {rec['trigger']}   |   {rec['item_count']} items   |   {approved_label}", expanded=False):
+                # Meta row
+                meta_col1, meta_col2, meta_col3 = st.columns(3)
+                with meta_col1:
+                    st.markdown(f"""
+<p style="font-size:11px;color:#8b949e;font-family:'IBM Plex Mono',monospace;margin:0;">FILTER</p>
+<p style="font-size:13px;color:#e6edf3;margin:0;">{filter_label}</p>
+""", unsafe_allow_html=True)
+                with meta_col2:
+                    st.markdown(f"""
+<p style="font-size:11px;color:#8b949e;font-family:'IBM Plex Mono',monospace;margin:0;">HITL DECISION</p>
+<p style="font-size:13px;color:{approved_color};margin:0;">{approved_label} &nbsp;—&nbsp; {deferred_label}</p>
+""", unsafe_allow_html=True)
+                with meta_col3:
+                    st.markdown(f"""
+<p style="font-size:11px;color:#8b949e;font-family:'IBM Plex Mono',monospace;margin:0;">STALE AT RUN TIME</p>
+<p style="font-size:13px;color:#e6edf3;margin:0;">{rec.get('stale_count', 0)} items</p>
+""", unsafe_allow_html=True)
+
+                # Quadrant breakdown
+                st.markdown("")
+                q_cols = st.columns(4)
+                q_defs = [("HU/HI","#ff6b6b"), ("HU/LI","#fbbf24"), ("LU/HI","#6ee7b7"), ("LU/LI","#93c5fd")]
+                for col, (qname, qcolor) in zip(q_cols, q_defs):
+                    col.markdown(f"""
+<div style="background:#161b22;border:1px solid #21262d;border-radius:6px;
+            padding:8px 12px;text-align:center;">
+  <p style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:{qcolor};margin:0;">{qname}</p>
+  <p style="font-size:20px;font-weight:600;color:#e6edf3;margin:2px 0 0 0;">{q.get(qname, 0)}</p>
+</div>
+""", unsafe_allow_html=True)
+
+                # Deferred items list
+                if rec["deferred_items"]:
+                    st.markdown("")
+                    st.markdown(f"<p style='font-size:11px;color:#8b949e;font-family:IBM Plex Mono,monospace;margin:0 0 4px 0;'>DEFERRED ITEMS</p>", unsafe_allow_html=True)
+                    deferred_str = "  ".join(
+                        f"<span style='background:#21262d;color:#8b949e;padding:2px 7px;border-radius:3px;font-family:IBM Plex Mono,monospace;font-size:11px;'>{d}</span>"
+                        for d in rec["deferred_items"]
+                    )
+                    st.markdown(deferred_str, unsafe_allow_html=True)
+
+                # HITL notes
+                if rec.get("hitl_notes"):
+                    st.markdown("")
+                    st.markdown(f"""
+<div style="background:#161b22;border-left:2px solid #30363d;padding:8px 12px;border-radius:0 4px 4px 0;">
+<p style="font-size:11px;color:#8b949e;font-family:'IBM Plex Mono',monospace;margin:0 0 2px 0;">NOTES</p>
+<p style="font-size:12px;color:#e6edf3;margin:0;">{rec['hitl_notes']}</p>
+</div>
+""", unsafe_allow_html=True)
+
+                # Report toggle
+                st.markdown("")
+                if rec.get("summary_report"):
+                    with st.expander("View full report", expanded=False):
+                        import re as _re2
+                        report_lines2 = rec["summary_report"].splitlines()
+                        formatted2 = []
+                        for line in report_lines2:
+                            stripped = line.strip()
+                            if stripped.startswith("---"):
+                                formatted2.append("<hr style='border:none;border-top:1px solid #30363d;margin:12px 0;'>")
+                            elif stripped.startswith("HITL"):
+                                formatted2.append(f"<p style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#8b949e;margin:8px 0 4px 0;'>{stripped}</p>")
+                            elif stripped and stripped[0].isdigit() and "." in stripped[:4]:
+                                line_html = _re2.sub(r"(\[[\w-]+\])", r"<span style='color:#79c0ff;font-family:IBM Plex Mono,monospace;font-size:11px;'>\1</span>", stripped)
+                                formatted2.append(f"<p style='margin:6px 0;font-size:13px;color:#e6edf3;line-height:1.6;'>{line_html}</p>")
+                            elif stripped.startswith("Approved") or stripped.startswith("All HU/HI"):
+                                formatted2.append(f"<p style='margin:4px 0;font-size:13px;color:#56d364;'>{stripped}</p>")
+                            elif stripped:
+                                formatted2.append(f"<p style='margin:8px 0;font-size:13px;color:#e6edf3;line-height:1.7;'>{stripped}</p>")
+                        st.markdown(f"""
+<div style="background:#0d1117;border:1px solid #21262d;border-radius:8px;
+            padding:16px 20px;word-wrap:break-word;overflow-wrap:break-word;">
+{"".join(formatted2)}
+</div>
+""", unsafe_allow_html=True)
+
+                # Actions row
+                st.markdown("")
+                if st.button("Delete", key=f"del_{rec['run_id']}"):
+                    delete_run(rec["run_id"])
+                    st.rerun()
+
+        # Clear all
+        st.divider()
+        if st.button("Clear All History", width="stretch"):
+            count = clear_history()
+            st.success(f"Cleared {count} run records.")
+            st.rerun()
