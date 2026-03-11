@@ -190,4 +190,5 @@ behind each node.
 | v1.6.0 | Item detail drawer, NL item updates, API key in graph state |
 | v1.7.0 | Stale items alert panel |
 | v1.8.0 | Unified NL command field, hybrid intent router |
-| v1.9.0 | AI chart generation agent (two-tier), cross-item RCA agent, category-scoped RCA, `updated_at` timestamp schema |
+| v1.9.0 | AI chart generation agent (two-tier), unified command field chart routing |
+| v1.10.0 | Cross-item RCA agent, category-scoped RCA, `updated_at` timestamp schema, registry seed expanded to 30 items, run history seed script |
