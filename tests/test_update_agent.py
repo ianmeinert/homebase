@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 
 
 SAMPLE_ITEM = {
-    "id": "PLM-001",
+    "id": "PLB-001",
     "category": "plumbing",
     "title": "Fix slow drain in master bath",
     "description": "Slow drain for 3 weeks, getting worse.",
@@ -160,7 +160,7 @@ class TestApplyUpdate:
         monkeypatch.setattr("tools.update_agent.get_model", lambda **kw: MagicMock(
             invoke=lambda msgs: _mock_llm_response({"urgency": 0.9})
         ))
-        updated, changes = apply_update("PLM-001", SAMPLE_ITEM, "raise urgency to 0.9")
+        updated, changes = apply_update("PLB-001", SAMPLE_ITEM, "raise urgency to 0.9")
         assert changes == {"urgency": 0.9}
         assert updated is not None
         assert updated["urgency"] == 0.9

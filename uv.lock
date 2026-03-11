@@ -235,7 +235,7 @@ wheels = [
 
 [[package]]
 name = "homebase"
-version = "1.8.0"
+version = "1.10.0"
 source = { editable = "." }
 dependencies = [
     { name = "langchain-core" },

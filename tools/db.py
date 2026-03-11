@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS registry (
     description       TEXT NOT NULL DEFAULT '',
     urgency           REAL NOT NULL DEFAULT 0.5,
     impact            REAL NOT NULL DEFAULT 0.5,
-    days_since_update INTEGER NOT NULL DEFAULT 0,
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
     status            TEXT NOT NULL DEFAULT 'open'
 );
 
@@ -65,6 +65,17 @@ def get_conn() -> sqlite3.Connection:
     conn.executescript(DDL)
     conn.commit()
 
+    # Migration: add updated_at if upgrading from older schema without it
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(registry)").fetchall()]
+    if "updated_at" not in cols:
+        conn.execute("ALTER TABLE registry ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))")
+        # Back-fill from days_since_update if column exists
+        if "days_since_update" in cols:
+            conn.execute(
+                "UPDATE registry SET updated_at = datetime('now', '-' || days_since_update || ' days')"
+            )
+        conn.commit()
+
     if first_run and SEED_PATH.exists():
         _seed_registry(conn)
 
@@ -76,15 +87,20 @@ def _seed_registry(conn: sqlite3.Connection) -> None:
     with open(SEED_PATH) as f:
         items = json.load(f)
 
-    conn.executemany(
-        """
-        INSERT OR IGNORE INTO registry
-            (id, category, title, description, urgency, impact, days_since_update, status)
-        VALUES
-            (:id, :category, :title, :description, :urgency, :impact, :days_since_update, :status)
-        """,
-        items,
-    )
+    # Convert days_since_update from seed file to an actual updated_at timestamp
+    for item in items:
+        days = item.pop("days_since_update", 0)
+        item["updated_at"] = f"datetime('now', '-{days} days')"
+
+    # Use executescript-style to evaluate datetime() — insert one by one
+    for item in items:
+        conn.execute(
+            f"""INSERT OR IGNORE INTO registry
+                (id, category, title, description, urgency, impact, updated_at, status)
+            VALUES
+                (:id, :category, :title, :description, :urgency, :impact, {item.pop('updated_at')}, :status)""",
+            item,
+        )
     conn.commit()
 
 

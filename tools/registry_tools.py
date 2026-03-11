@@ -12,9 +12,9 @@ IMPACT_THRESHOLD = 0.6
 STALE_DAYS_THRESHOLD = 14
 
 CATEGORY_PREFIXES = {
-    "hvac":       "HVA",
-    "plumbing":   "PLM",
-    "electrical": "ELC",
+    "hvac":       "HV",
+    "plumbing":   "PLB",
+    "electrical": "EL",
     "appliance":  "APP",
     "general":    "GEN",
 }
@@ -24,6 +24,21 @@ CATEGORY_PREFIXES = {
 # Read
 # ---------------------------------------------------------------------------
 
+def _row_to_item(row) -> dict:
+    """Convert a registry row to a dict, computing days_since_update from updated_at."""
+    import datetime
+    d = row_to_dict(row)
+    if "updated_at" in d and d["updated_at"]:
+        try:
+            updated = datetime.datetime.fromisoformat(d["updated_at"])
+            d["days_since_update"] = (datetime.datetime.now() - updated).days
+        except (ValueError, TypeError):
+            d["days_since_update"] = 0
+    else:
+        d["days_since_update"] = 0
+    return d
+
+
 def get_registry() -> list[dict]:
     """Return all open registry items as a list of dicts."""
     conn = get_conn()
@@ -31,7 +46,7 @@ def get_registry() -> list[dict]:
         "SELECT * FROM registry WHERE status IN ('open', 'in_progress') ORDER BY id"
     ).fetchall()
     conn.close()
-    return [row_to_dict(r) for r in rows]
+    return [_row_to_item(r) for r in rows]
 
 
 def get_item_detail(item_id: str, registry: list[dict]) -> dict | None:
@@ -114,9 +129,10 @@ def save_registry(items: list[dict]) -> None:
     conn.executemany(
         """
         INSERT OR REPLACE INTO registry
-            (id, category, title, description, urgency, impact, days_since_update, status)
+            (id, category, title, description, urgency, impact, updated_at, status)
         VALUES
-            (:id, :category, :title, :description, :urgency, :impact, :days_since_update, :status)
+            (:id, :category, :title, :description, :urgency, :impact,
+             COALESCE(:updated_at, datetime('now')), :status)
         """,
         items,
     )
@@ -135,38 +151,39 @@ def add_item(
     conn = get_conn()
     new_id = _next_id(category, conn)
     new_item = {
-        "id":                new_id,
-        "category":          category,
-        "title":             title,
-        "description":       description,
-        "urgency":           round(urgency, 2),
-        "impact":            round(impact, 2),
-        "days_since_update": 0,
-        "status":            "open",
+        "id":          new_id,
+        "category":    category,
+        "title":       title,
+        "description": description,
+        "urgency":     round(urgency, 2),
+        "impact":      round(impact, 2),
+        "status":      "open",
     }
     conn.execute(
         """
         INSERT INTO registry
-            (id, category, title, description, urgency, impact, days_since_update, status)
+            (id, category, title, description, urgency, impact, updated_at, status)
         VALUES
-            (:id, :category, :title, :description, :urgency, :impact, :days_since_update, :status)
+            (:id, :category, :title, :description, :urgency, :impact, datetime('now'), :status)
         """,
         new_item,
     )
     conn.commit()
     conn.close()
+    new_item["days_since_update"] = 0
     return new_item
 
 
 def update_item(item_id: str, updates: dict) -> dict | None:
     """Update allowed fields on an existing item. Returns updated item or None."""
-    allowed = {"title", "description", "urgency", "impact", "status", "days_since_update"}
+    allowed = {"title", "description", "urgency", "impact", "status"}
     safe = {k: v for k, v in updates.items() if k in allowed}
     if not safe:
         return None
 
     conn = get_conn()
     set_clause = ", ".join(f"{k} = :{k}" for k in safe)
+    set_clause += ", updated_at = datetime('now')"
     safe["_id"] = item_id
     conn.execute(
         f"UPDATE registry SET {set_clause} WHERE id = :_id",
@@ -175,13 +192,16 @@ def update_item(item_id: str, updates: dict) -> dict | None:
     conn.commit()
     row = conn.execute("SELECT * FROM registry WHERE id = ?", (item_id,)).fetchone()
     conn.close()
-    return row_to_dict(row) if row else None
+    return _row_to_item(row) if row else None
 
 
 def close_item(item_id: str) -> bool:
-    """Remove an item from the registry. Returns True if found."""
+    """Set item status to closed with updated_at timestamp. Returns True if found."""
     conn = get_conn()
-    cursor = conn.execute("DELETE FROM registry WHERE id = ?", (item_id,))
+    cursor = conn.execute(
+        "UPDATE registry SET status = 'closed', updated_at = datetime('now') WHERE id = ?",
+        (item_id,)
+    )
     conn.commit()
     conn.close()
     return cursor.rowcount > 0

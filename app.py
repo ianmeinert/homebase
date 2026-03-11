@@ -321,6 +321,8 @@ def init_state():
         "pending_input": "",       # set by prompt library, consumed by command field
         "api_key": os.environ.get("GROQ_API_KEY", ""),
         "chart_result":  None,        # {fig, error, instruction} or None
+        "rca_result":    None,        # {clusters, narrative, recommendations, confidence, ...} or None
+        "rca_category":  None,        # category scope for current RCA (None = all)
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -512,9 +514,10 @@ main_tabs = st.tabs(["DASHBOARD", "RUN HISTORY"])
 with main_tabs[0]:
 
     # -- Unified command input + file upload ---------------------------------------
-    from tools.update_agent import classify_input, execute_command as _execute_command
+    from tools.update_agent import classify_input, execute_command as _execute_command, extract_rca_category
     from tools.registry_tools import get_registry as _get_registry
     from tools.chart_agent import generate_chart as _generate_chart
+    from tools.rca_agent import run_rca as _run_rca
 
     _cmd_disabled = st.session_state.phase in ("running", "hitl_wait")
     _no_key       = not st.session_state.api_key.strip()
@@ -526,7 +529,7 @@ with main_tabs[0]:
                 "Command",
                 value=st.session_state.get("pending_input", ""),
                 label_visibility="collapsed",
-                placeholder='Run · Registry · Chart  —  e.g. "weekly review"  ·  "mark APP-001 in progress"  ·  "chart urgency by category"',
+                placeholder='Run · Registry · Chart · RCA  —  e.g. "weekly review"  ·  "mark APP-001 in progress"  ·  "chart urgency by category"  ·  "root cause analysis"',
                 disabled=_cmd_disabled,
             )
         with _b_col:
@@ -561,6 +564,18 @@ with main_tabs[0]:
                 "error":       _chart_err,
                 "instruction": _input,
             }
+            st.rerun()
+
+        elif _intent_class == "rca":
+            # Cross-item root cause analysis — extract category from NL if present
+            _rca_cat = extract_rca_category(_input)
+            if _rca_cat:
+                st.session_state.rca_category = _rca_cat
+            _scope = st.session_state.rca_category
+            _scope_label = f"'{_scope}' category" if _scope else "all categories"
+            with st.spinner(f"RCA agent analyzing patterns across {_scope_label}..."):
+                _rca = _run_rca(_input, category=_scope, api_key=_api_key)
+            st.session_state.rca_result = _rca
             st.rerun()
 
         else:
@@ -604,6 +619,151 @@ with main_tabs[0]:
         st.warning("Enter your Groq API key in the sidebar first.")
 
     st.divider()
+
+    # -- RCA panel (full width, rendered when rca_result is set) -------------------
+    if st.session_state.rca_result:
+        _rca = st.session_state.rca_result
+        _rca_cat = st.session_state.get("rca_category")
+
+        # Header row
+        _rca_h, _rca_sel, _rca_clear = st.columns([3, 2, 1])
+        with _rca_h:
+            _scope_title = f"— {_rca_cat.upper()}" if _rca_cat else "— ALL CATEGORIES"
+            st.markdown(f"### Root Cause Analysis {_scope_title}")
+        with _rca_sel:
+            _cat_options = ["All Categories", "hvac", "plumbing", "electrical", "appliance", "general"]
+            _sel_idx = _cat_options.index(_rca_cat) if _rca_cat in _cat_options else 0
+            _new_cat_sel = st.selectbox(
+                "Scope", _cat_options, index=_sel_idx, key="rca_cat_selector",
+                label_visibility="collapsed"
+            )
+            _new_cat = None if _new_cat_sel == "All Categories" else _new_cat_sel
+            if _new_cat != _rca_cat:
+                st.session_state.rca_category = _new_cat
+                _scope_label2 = f"'{_new_cat}' category" if _new_cat else "all categories"
+                with st.spinner(f"RCA agent re-analyzing {_scope_label2}..."):
+                    _rca_rerun = _run_rca("root cause analysis", category=_new_cat, api_key=st.session_state.api_key.strip() or None)
+                st.session_state.rca_result = _rca_rerun
+                st.rerun()
+        with _rca_clear:
+            if st.button("✕  Clear", key="clear_rca"):
+                st.session_state.rca_result = None
+                st.session_state.rca_category = None
+                st.rerun()
+
+        if _rca.get("error"):
+            st.error(_rca["error"])
+        else:
+            # Overall confidence badge
+            _conf     = _rca.get("confidence", 0.0)
+            _conf_pct = int(_conf * 100)
+            _conf_color = (
+                "#ff6b6b" if _conf < 0.5 else
+                "#f5a623" if _conf < 0.7 else
+                "#7ecb35" if _conf < 0.9 else
+                "#00d4aa"
+            )
+            _conf_rationale = _rca.get("confidence_rationale", "")
+            st.markdown(
+                f"<div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'>"
+                f"<span style='font-size:12px;color:#888;font-family:IBM Plex Mono,monospace;'>ANALYSIS CONFIDENCE</span>"
+                f"<span style='font-size:18px;font-weight:700;color:{_conf_color};'>{_conf_pct}%</span>"
+                f"<span style='font-size:12px;color:#aaa;font-style:italic;'>{_conf_rationale}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Meta line
+            st.markdown(
+                f"<div style='font-size:11px;color:#666;font-family:IBM Plex Mono,monospace;"
+                f"margin-bottom:16px;'>Analyzed {_rca.get('item_count',0)} items · "
+                f"{_rca.get('run_count',0)} historical runs · "
+                f"{len(_rca.get('clusters',[]))} pattern clusters identified</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Pattern clusters
+            _clusters = _rca.get("clusters", [])
+            if _clusters:
+                st.markdown("**Pattern Clusters**")
+                _sev_color = {
+                    "critical": "#ff4444", "high": "#ff6b6b",
+                    "moderate": "#f5a623", "low": "#7ecb35",
+                }
+                _cluster_cols = st.columns(min(len(_clusters), 3))
+                for _i, _cl in enumerate(_clusters):
+                    with _cluster_cols[_i % 3]:
+                        _sev    = _cl.get("severity", "moderate")
+                        _sc     = _sev_color.get(_sev, "#f5a623")
+                        _cl_conf = int(float(_cl.get("confidence", 0.0)) * 100)
+                        _ids    = ", ".join(_cl.get("item_ids", []))
+                        st.markdown(
+                            f"<div style='background:#161b22;border:1px solid {_sc};"
+                            f"border-radius:8px;padding:12px 14px;margin-bottom:10px;'>"
+                            f"<div style='font-size:13px;font-weight:700;color:{_sc};"
+                            f"margin-bottom:4px;'>{_cl.get('label','')}</div>"
+                            f"<div style='font-size:11px;color:#aaa;margin-bottom:6px;'>"
+                            f"{_cl.get('risk_factor','')}</div>"
+                            f"<div style='font-size:11px;color:#666;font-family:IBM Plex Mono,monospace;'>"
+                            f"Items: {_ids}</div>"
+                            f"<div style='display:flex;justify-content:space-between;"
+                            f"align-items:center;margin-top:8px;'>"
+                            f"<span style='font-size:10px;color:{_sc};text-transform:uppercase;"
+                            f"letter-spacing:1px;'>{_sev}</span>"
+                            f"<span style='font-size:11px;color:#888;'>confidence: {_cl_conf}%</span>"
+                            f"</div></div>",
+                            unsafe_allow_html=True,
+                        )
+
+            # Narrative
+            _narrative = _rca.get("narrative", "")
+            if _narrative:
+                st.markdown("**Systemic Root Cause Narrative**")
+                st.markdown(
+                    f"<div style='background:#0d1117;border-left:3px solid #4a9eff;"
+                    f"padding:14px 18px;border-radius:0 6px 6px 0;margin-bottom:16px;"
+                    f"font-size:13px;color:#cdd9e5;line-height:1.7;'>{_narrative}</div>",
+                    unsafe_allow_html=True,
+                )
+
+            # Recommendations
+            _recs = _rca.get("recommendations", [])
+            if _recs:
+                st.markdown("**Corrective Actions**")
+                _urg_color = {
+                    "immediate": "#ff6b6b", "short_term": "#f5a623", "long_term": "#7ecb35"
+                }
+                _urg_label = {
+                    "immediate": "IMMEDIATE", "short_term": "SHORT-TERM", "long_term": "LONG-TERM"
+                }
+                for _rec in _recs:
+                    _urg   = _rec.get("urgency", "short_term")
+                    _uc    = _urg_color.get(_urg, "#f5a623")
+                    _ul    = _urg_label.get(_urg, _urg.upper())
+                    _addrs = ", ".join(_rec.get("addresses_clusters", []))
+                    st.markdown(
+                        f"<div style='background:#161b22;border:1px solid #30363d;"
+                        f"border-radius:6px;padding:12px 14px;margin-bottom:8px;"
+                        f"display:flex;gap:12px;align-items:flex-start;'>"
+                        f"<div style='min-width:28px;height:28px;background:{_uc}22;"
+                        f"border:1px solid {_uc};border-radius:50%;display:flex;"
+                        f"align-items:center;justify-content:center;font-size:12px;"
+                        f"font-weight:700;color:{_uc};'>{_rec.get('priority','')}</div>"
+                        f"<div style='flex:1;'>"
+                        f"<div style='font-size:13px;font-weight:600;color:#e6edf3;"
+                        f"margin-bottom:4px;'>{_rec.get('action','')}</div>"
+                        f"<div style='font-size:12px;color:#aaa;margin-bottom:6px;'>"
+                        f"{_rec.get('rationale','')}</div>"
+                        f"<div style='display:flex;gap:10px;'>"
+                        f"<span style='font-size:10px;color:{_uc};text-transform:uppercase;"
+                        f"letter-spacing:1px;border:1px solid {_uc}33;padding:1px 6px;"
+                        f"border-radius:3px;'>{_ul}</span>"
+                        f"{'<span style=\"font-size:10px;color:#555;font-family:IBM Plex Mono,monospace;\">Addresses: ' + _addrs + '</span>' if _addrs else ''}"
+                        f"</div></div></div>",
+                        unsafe_allow_html=True,
+                    )
+
+        st.divider()
 
     # -- Main content columns ------------------------------------------------------
     left_col, right_col = st.columns([3, 2])

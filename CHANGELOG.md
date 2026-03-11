@@ -4,6 +4,17 @@ All notable changes to HOMEBASE are documented here.
 
 ---
 
+## v1.10.0
+
+- Cross-item Root Cause Analysis (RCA) agent via unified command field
+- `tools/rca_agent.py` — single LLM call with full registry + run history context
+- RCA output: pattern clusters (items grouped by shared risk factor), systemic narrative (2-3 paragraphs), prioritized recommendations
+- Confidence scoring on overall RCA and per cluster — float 0.0-1.0 with rationale string
+- `rca` intent added to hybrid router in `update_agent.py` — keywords: root cause, rca, analyze patterns, systemic, what's driving, common factors, pattern analysis, cross-item analysis
+- Full-width RCA results panel renders below command field — cluster cards, narrative block, priority-badged recommendations
+- 32 new tests in `test_rca_agent.py` — data loaders, run_rca integration, confidence validation, intent routing
+- conftest.py hardened — rca_agent patches use module object (not string path) to fix Windows collection-order issue
+
 ## v1.9.0
 
 - AI chart generation — plain language chart requests via unified command field (e.g. "chart urgency by category", "plot item count and stale count over time")

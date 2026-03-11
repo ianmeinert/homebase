@@ -40,10 +40,42 @@ _CHART_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# RCA keywords — user wants a cross-item root cause analysis
+_RCA_KEYWORDS = re.compile(
+    r'\b(root cause|rca|root-cause|analyze patterns|analyse patterns|systemic|'
+    r'what\'s driving|whats driving|common factors|pattern analysis|'
+    r'underlying cause|why are|what\'s causing|whats causing|cross.item)\b',
+    re.IGNORECASE,
+)
+
+# Category extraction for scoped RCA
+_CATEGORY_MAP = {
+    "hvac":        "hvac",
+    "plumbing":    "plumbing",
+    "plumb":       "plumbing",
+    "electrical":  "electrical",
+    "electric":    "electrical",
+    "appliance":   "appliance",
+    "appliances":  "appliance",
+    "general":     "general",
+}
+_CATEGORY_PAT = re.compile(
+    r'\b(hvac|plumbing|plumb|electrical|electric|appliance|appliances|general)\b',
+    re.IGNORECASE,
+)
+
+
+def extract_rca_category(instruction: str) -> str | None:
+    """Return canonical category name if instruction scopes the RCA, else None."""
+    m = _CATEGORY_PAT.search(instruction)
+    if m:
+        return _CATEGORY_MAP.get(m.group(1).lower())
+    return None
+
 AMBIGUOUS_INTENT_PROMPT = """You are a home management assistant command router.
 
 Given a user input, return ONLY a JSON object with:
-- "intent": one of "run", "add", "update", "close", or "chart"
+- "intent": one of "run", "add", "update", "close", "chart", or "rca"
 
 Definitions:
 - "run": trigger an agent analysis run (e.g. "weekly review", "check hvac", "what needs attention")
@@ -51,6 +83,7 @@ Definitions:
 - "update": change fields on an existing registry item
 - "close": close/remove a registry item
 - "chart": generate a chart or visualization from registry or run history data
+- "rca": perform a cross-item root cause analysis (e.g. "root cause", "what's driving these issues", "systemic analysis")
 
 Return ONLY valid JSON. No explanation, no markdown, no preamble."""
 
@@ -65,6 +98,11 @@ def classify_input(instruction: str, api_key: str | None = None) -> str:
     has_run_keyword  = bool(_RUN_KEYWORDS.search(instruction))
     has_reg_keyword  = bool(_REGISTRY_KEYWORDS.search(instruction))
     has_chart_kw     = bool(_CHART_KEYWORDS.search(instruction))
+    has_rca_kw       = bool(_RCA_KEYWORDS.search(instruction))
+
+    # Unambiguous: RCA keyword → rca intent (highest priority, before chart/run)
+    if has_rca_kw and not has_item_id and not has_reg_keyword:
+        return "rca"
 
     # Unambiguous: chart keyword → chart intent (before run/query to avoid misroute)
     if has_chart_kw and not has_item_id and not has_reg_keyword:
@@ -92,7 +130,7 @@ def classify_input(instruction: str, api_key: str | None = None) -> str:
         raw = response.content.strip().strip("```json").strip("```").strip()
         parsed = json.loads(raw)
         intent = parsed.get("intent", "run")
-        if intent == "chart":
+        if intent in ("chart", "rca"):
             return intent
         return "run" if intent == "run" else "registry"
     except Exception:

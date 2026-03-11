@@ -23,10 +23,10 @@ def _load_registry() -> list[dict]:
     """Return all non-closed registry items as list of dicts."""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT id, category, title, urgency, impact, days_since_update, status FROM registry"
+        "SELECT id, category, title, urgency, impact, CAST((julianday('now') - julianday(updated_at)) AS INTEGER) AS days_since_update, updated_at, status FROM registry"
     ).fetchall()
     conn.close()
-    keys = ["id", "category", "title", "urgency", "impact", "days_since_update", "status"]
+    keys = ["id", "category", "title", "urgency", "impact", "days_since_update", "updated_at", "status"]
     return [dict(zip(keys, r)) for r in rows]
 
 
@@ -111,7 +111,7 @@ Given a user instruction and available dataset columns, return a JSON chart spec
   "aggregation": "none" | "count" | "mean" | "sum" | "max"
 }
 
-Available registry columns: id, category, title, urgency, impact, days_since_update, status
+Available registry columns: id, category, title, urgency, impact, days_since_update, updated_at, status
 Available run_history columns: run_label, run_index, date, trigger, category_filter, item_count, stale_count, hitl_approved
 
 Rules:

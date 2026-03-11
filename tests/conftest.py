@@ -47,7 +47,7 @@ def _make_in_memory_conn():
             description       TEXT NOT NULL DEFAULT '',
             urgency           REAL NOT NULL DEFAULT 0.5,
             impact            REAL NOT NULL DEFAULT 0.5,
-            days_since_update INTEGER NOT NULL DEFAULT 0,
+            updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
             status            TEXT NOT NULL DEFAULT 'open'
         );
 
@@ -68,12 +68,15 @@ def _make_in_memory_conn():
 
     if SEED_PATH.exists():
         items = json.loads(SEED_PATH.read_text())
-        conn.executemany(
-            """INSERT OR IGNORE INTO registry
-               (id, category, title, description, urgency, impact, days_since_update, status)
-               VALUES (:id, :category, :title, :description, :urgency, :impact, :days_since_update, :status)""",
-            items,
-        )
+        for item in items:
+            days = item.pop("days_since_update", 0)
+            conn.execute(
+                f"""INSERT OR IGNORE INTO registry
+                    (id, category, title, description, urgency, impact, updated_at, status)
+                VALUES
+                    (:id, :category, :title, :description, :urgency, :impact, datetime('now', '-{days} days'), :status)""",
+                item,
+            )
     conn.commit()
     return conn
 
@@ -84,9 +87,43 @@ def mock_llm(monkeypatch):
     Auto-used fixture -- patches:
       1. get_model() in llm_tools  (no Groq API key needed)
       2. _llm_synthesize in orchestrator
-      3. db.get_conn  (in-memory SQLite, isolated per test)
+      3. db.get_conn  (single shared in-memory SQLite per test)
     """
+    from unittest.mock import MagicMock
+
+    _base_conn = _make_in_memory_conn()
+
+    class _NoCloseConn:
+        """Proxy that delegates everything to the real conn but ignores close()."""
+        def __getattr__(self, name):
+            return getattr(_base_conn, name)
+        def close(self):
+            pass  # no-op — keep shared conn alive
+        def execute(self, *a, **kw):
+            return _base_conn.execute(*a, **kw)
+        def executemany(self, *a, **kw):
+            return _base_conn.executemany(*a, **kw)
+        def executescript(self, *a, **kw):
+            return _base_conn.executescript(*a, **kw)
+        def commit(self):
+            return _base_conn.commit()
+        def rollback(self):
+            return _base_conn.rollback()
+        def cursor(self):
+            return _base_conn.cursor()
+        @property
+        def row_factory(self):
+            return _base_conn.row_factory
+        @row_factory.setter
+        def row_factory(self, v):
+            _base_conn.row_factory = v
+
+    def make_conn():
+        return _NoCloseConn()
+
     mock_model = MockModel()
+    mock_model.invoke = MagicMock(side_effect=mock_model.invoke)
+
     monkeypatch.setattr("tools.llm_tools.get_model", lambda **kw: mock_model)
 
     def mock_synthesize(active_results, trigger, hitl_notes, **kwargs):
@@ -95,11 +132,13 @@ def mock_llm(monkeypatch):
 
     monkeypatch.setattr("agents.orchestrator._llm_synthesize", mock_synthesize)
 
-    # Patch get_conn everywhere it's imported
-    def make_conn():
-        return _make_in_memory_conn()
-
     monkeypatch.setattr("tools.db.get_conn", make_conn)
     monkeypatch.setattr("tools.registry_tools.get_conn", make_conn)
     monkeypatch.setattr("tools.history_tools.get_conn", make_conn)
-    monkeypatch.setattr("tools.chart_agent.get_conn", make_conn)
+    import tools.chart_agent
+    monkeypatch.setattr(tools.chart_agent, "get_conn", make_conn)
+    import tools.rca_agent
+    monkeypatch.setattr(tools.rca_agent, "get_conn", make_conn)
+    monkeypatch.setattr(tools.rca_agent, "get_model", lambda api_key=None: mock_model)
+
+    yield mock_model

@@ -2,7 +2,7 @@
 
 ### Multi-Agent Home Management System — LangGraph + Groq
 
-### v1.9.0
+### v1.10.0
 
 A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
 orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
@@ -75,7 +75,7 @@ homebase/
 |
 +-- data/
 |   +-- homebase.db               # SQLite database (auto-created on first run)
-|   +-- registry.json             # Seed data — 15 home task items (read once on DB init)
+|   +-- registry.json             # Seed data — 30 home task items across 5 categories (read once on DB init)
 |
 +-- graph/
 |   +-- state.py                  # HombaseState TypedDict schema
@@ -93,7 +93,11 @@ homebase/
 |   +-- tracing.py                # LangSmith tracing init, status check, per-run metadata
 |   +-- update_agent.py           # Natural language registry update agent + intent router
 |   +-- chart_agent.py            # AI chart generation agent (two-tier: simple spec / complex figure dict)
+|   +-- rca_agent.py              # Cross-item root cause analysis agent with category scoping
 |   +-- subagent_tools.py         # Rule-based tools (reference/fallback)
+|
++-- scripts/
+|   +-- seed_run_history.py       # Inserts synthetic run history records for demo data quality
 |
 +-- tests/
     +-- conftest.py               # Global LLM mock + in-memory SQLite fixture (no API key needed)
@@ -129,6 +133,18 @@ Get a key at: <https://console.groq.com>
 
 **Database:** `data/homebase.db` is created and seeded automatically on first run.
 No migration step required.
+
+**Demo data:**
+The registry seeds automatically with 30 items across 5 categories on first run.
+For meaningful RCA confidence scores and trend analysis, seed synthetic run history:
+
+```bash
+uv run python scripts/seed_run_history.py
+```
+
+This inserts 100 synthetic run history records spanning 90 days with realistic
+quadrant distributions, staleness trends, and HITL decisions. Run `--clear` to
+reset history first, or `--count N` to control the number of records.
 
 **LangSmith tracing (optional):**
 Add to `.env` to activate:
@@ -166,6 +182,7 @@ The UI provides:
 - **Export PDF** — print-ready light-theme PDF download of the final report
 - **Unified command field** — single input handles run triggers, registry commands (add, update, close), and chart requests via hybrid intent routing; Enter or click to submit
 - **AI chart generation** — plain language chart requests routed to `chart_agent`; two-tier LLM pipeline (simple spec or full Plotly figure dict); renders in right column alongside rule-based charts
+- **Cross-item RCA** — natural language root cause analysis across the full registry or scoped to a category; pattern clusters, systemic narrative, prioritized recommendations, and confidence scoring; category override via dropdown selector
 - **Run history tab** — audit trail of all runs; expandable cards with quadrant breakdown, HITL decisions, deferred items, and full report
 
 ### CLI — Interactive HITL mode
@@ -195,7 +212,7 @@ uv run pytest -v
 uv run pytest tests/test_hitl.py -v
 ```
 
-**172 tests across 8 files.**
+**217 tests across 9 files.**
 
 | File | Tests | Covers |
 |---|---|---|
@@ -207,6 +224,7 @@ uv run pytest tests/test_hitl.py -v
 | `test_hitl.py` | 31 | HITL briefing, deferral filtering, interrupt/resume behavior |
 | `test_update_agent.py` | 16 | NL interpretation, field validation, clamping, apply_update path |
 | `test_chart_agent.py` | 25 | Chart spec building, complex figure dict, intent routing, data loading |
+| `test_rca_agent.py` | 45 | Data loaders, RCA output structure, confidence scoring, category scoping, intent routing |
 
 ---
 
@@ -232,14 +250,19 @@ uv run pytest tests/test_hitl.py -v
 | Home Management | Enterprise Equivalent |
 |---|---|
 | Home task registry | Risk register / ticket backlog / compliance tracker |
-| Urgency x Impact quadrant | Likelihood x Risk Score (RMA framework) |
-| HU/HI -> HITL escalation | High-priority item requiring manager approval |
+| Urgency x Impact quadrant | Likelihood x Risk Score scoring framework |
+| HU/HI -> HITL escalation | High-priority item requiring human approval |
 | Specialist subagents | Domain SME agents (security, ops, finance, legal) |
 | Stale item detection | SLA breach / aging ticket detection |
 | Deferral with notes | Documented risk acceptance / exception handling |
 | `MemorySaver` checkpoint | Audit trail of human decisions |
 | SQLite backend | Persistent, portable state store |
 | LangSmith tracing | Audit trail of model reasoning for stakeholder validation |
+| Cross-item RCA | Systemic root cause analysis across work item categories |
+| Category-scoped RCA | Domain-targeted root cause analysis |
+| Confidence scoring | Model uncertainty quantification for stakeholder trust |
+| Document intake agent *(backlog)* | Attachment scraping and structured data extraction |
+| Multi-provider architecture *(backlog)* | Provider-agnostic deployment for constrained environments |
 
 ---
 
@@ -279,7 +302,16 @@ for cost modeling, debugging, and enterprise justification.
 
 ## Planned Features
 
-_File ingest agent (PDF, CSV, image → registry items) — deferred pending Streamlit file widget investigation_
+See [BACKLOG.md](BACKLOG.md) for the full feature backlog including next-up items,
+medium-term extensions, and future research directions.
+
+Highlights:
+
+- **5 Whys follow-on agent** — interactive causal drill-down from RCA cluster
+- **Predictive quadrant preview** — LLM predicts HU/HI before a full run from free-text input
+- **Completeness scorer** — watches item creation, prompts for missing high-value fields
+- **Document intake agent** — PDF/image → extract warranty, invoice, inspection data → registry (Gemini)
+- **Schema-aware metric discovery** — RAG-backed agent analyzes data schema for metric potential and gaps
 
 ---
 
@@ -312,3 +344,9 @@ See [CHANGELOG.md](CHANGELOG.md).
   logic and is retained as a reference/fallback.
 - `data/registry.json` is only read during initial DB seed. After `homebase.db`
   exists, all registry reads/writes go through SQLite.
+- `days_since_update` is computed on read from the `updated_at` timestamp column.
+  Every registry write (add, update, close) sets `updated_at = datetime('now')`.
+- The document intake agent (backlog) will introduce Gemini 1.5 Flash as a second
+  LLM provider for multimodal document understanding, alongside Groq/Llama for
+  real-time orchestration. This demonstrates a provider-agnostic multi-model
+  architecture — each model used where it performs best.
