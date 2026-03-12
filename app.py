@@ -326,6 +326,8 @@ def init_state():
         "whys_results":  [],          # list of 5 Whys results, one per category run
         "qp_result":     None,        # QuadrantPreview result dict or None
         "qp_input":      "",          # last input that was previewed (dedup)
+        "cs_result":     None,        # CompletenessResult dict or None
+        "cs_input":      "",          # last input+category that was scored (dedup key)
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -542,26 +544,72 @@ with main_tabs[0]:
                 width="stretch",
             )
 
-    # -- Predictive Quadrant Preview -----------------------------------------------
-    # Renders a live badge showing predicted quadrant + confidence before any run.
-    # Uses a separate text input (outside form) so on_change fires per keystroke.
-    # The form input above handles actual submission; this drives the preview only.
-    from tools.quadrant_preview import predict_quadrant as _predict_quadrant
+    # -- Predictive Quadrant Preview + Completeness Scorer ------------------------
+    # Single expander handles both:
+    #   1. Quadrant prediction (predict_quadrant) — fires on every input change
+    #   2. Completeness scoring (score_completeness) — fires after quadrant resolves,
+    #      using the predicted category as the rubric key
+    # Both use on_change dedup to avoid redundant API calls.
+    from tools.quadrant_preview    import predict_quadrant    as _predict_quadrant
+    from tools.completeness_agent  import score_completeness  as _score_completeness
 
     def _run_preview():
         _desc = st.session_state.get("qp_live_input", "").strip()
         if len(_desc) < 8:
             st.session_state.qp_result = None
             st.session_state.qp_input  = ""
+            st.session_state.cs_result = None
+            st.session_state.cs_input  = ""
             return
-        if _desc == st.session_state.get("qp_input", ""):
-            return  # no change, skip API call
         _api_key_qp = st.session_state.api_key.strip() or None
-        st.session_state.qp_result = _predict_quadrant(_desc, api_key=_api_key_qp)
-        st.session_state.qp_input  = _desc
+
+        # -- Quadrant prediction (deduped) --
+        if _desc != st.session_state.get("qp_input", ""):
+            st.session_state.qp_result = _predict_quadrant(_desc, api_key=_api_key_qp)
+            st.session_state.qp_input  = _desc
+
+        # -- Completeness scoring (deduped on desc + category) --
+        _qp_res = st.session_state.qp_result
+        if _qp_res and not _qp_res.get("error") and _qp_res.get("quadrant"):
+            # Derive category from quadrant: map HU/HI → use the predicted category
+            # The quadrant preview doesn't return a category, so we ask the completeness
+            # agent to infer it from the description directly (category="general" triggers
+            # fuzzy matching inside score_completeness; we pass the full description so
+            # the LLM can use category-aware rubric selection via the system prompt).
+            # For a richer signal, we pass the rationale as a category hint.
+            _cat_hint = _qp_res.get("rationale", "")
+            _cs_key   = f"{_desc}|{_qp_res['quadrant']}"
+            if _cs_key != st.session_state.get("cs_input", ""):
+                # Infer category from description via a lightweight keyword pass,
+                # falling back to the completeness agent's own normalization.
+                _inferred_cat = _infer_category_from_description(_desc)
+                st.session_state.cs_result = _score_completeness(
+                    _desc, _inferred_cat, api_key=_api_key_qp
+                )
+                st.session_state.cs_input  = _cs_key
+        else:
+            st.session_state.cs_result = None
+            st.session_state.cs_input  = ""
+
+    def _infer_category_from_description(desc: str) -> str:
+        """Lightweight keyword-based category inference for completeness rubric selection."""
+        d = desc.lower()
+        # Appliance checked first — "dryer not heating" contains "heating" but is not HVAC
+        if any(k in d for k in ("washer", "dryer", "dishwasher", "refrigerator", "fridge", "oven", "stove", "microwave", "appliance")):
+            return "appliance"
+        if any(k in d for k in ("furnace", "hvac", "ac ", "air condition", "vent", "duct", "filter", "thermostat", "cooling", "heating", "heat pump")):
+            return "hvac"
+        # "heat" alone checked after appliance to avoid false matches (e.g. "not heating" on dryer)
+        if "heat" in d and not any(k in d for k in ("washer", "dryer", "dishwasher", "refrigerator", "fridge", "oven", "stove", "microwave")):
+            return "hvac"
+        if any(k in d for k in ("pipe", "drain", "leak", "plumb", "toilet", "faucet", "sink", "water heater", "shower", "hose", "clog", "flood")):
+            return "plumbing"
+        if any(k in d for k in ("outlet", "circuit", "breaker", "electrical", "wiring", "panel", "gfci", "light", "switch", "spark", "power")):
+            return "electrical"
+        return "general"
 
     with st.expander("⬡  Predictive Quadrant Preview", expanded=False):
-        st.caption("Type an issue description to predict its urgency/impact quadrant before running.")
+        st.caption("Type an issue description to predict its quadrant and score description completeness.")
         _qp_disabled = _cmd_disabled or _no_key
         st.text_input(
             "Issue description",
@@ -573,13 +621,14 @@ with main_tabs[0]:
         )
 
         _qp = st.session_state.get("qp_result")
+
+        # -- Quadrant badge --
         if _qp and not _qp.get("error") and _qp.get("quadrant"):
-            _q   = _qp["quadrant"]
-            _conf = _qp["confidence"]
-            _rat  = _qp.get("rationale", "")
+            _q        = _qp["quadrant"]
+            _conf     = _qp["confidence"]
+            _rat      = _qp.get("rationale", "")
             _conf_pct = int(_conf * 100)
 
-            # Badge color map (matches existing badge CSS classes)
             _badge_class = {
                 "HU/HI": "badge-hu-hi",
                 "HU/LI": "badge-hu-li",
@@ -587,7 +636,6 @@ with main_tabs[0]:
                 "LU/LI": "badge-lu-li",
             }.get(_q, "badge-lu-li")
 
-            # Confidence bar color
             _bar_color = (
                 "#56d364" if _conf >= 0.80 else
                 "#fbbf24" if _conf >= 0.60 else
@@ -605,10 +653,73 @@ with main_tabs[0]:
                     <span style='font-family:IBM Plex Mono,monospace;font-size:12px;color:{_bar_color};
                                  min-width:36px;text-align:right;'>{_conf_pct}%</span>
                 </div>
-                <p style='color:#8b949e;font-size:12px;margin:4px 0 0 0;font-style:italic;'>{_rat}</p>
+                <p style='color:#8b949e;font-size:12px;margin:4px 0 8px 0;font-style:italic;'>{_rat}</p>
                 """,
                 unsafe_allow_html=True,
             )
+
+            # -- Completeness scorer --
+            _cs = st.session_state.get("cs_result")
+            if _cs and not _cs.get("error"):
+                _cs_score     = _cs["score"]
+                _cs_pct       = int(_cs_score * 100)
+                _cs_questions = _cs.get("questions", [])
+                _cs_missing   = _cs.get("missing_fields", [])
+                _cs_category  = _cs.get("category", "")
+
+                _cs_bar_color = (
+                    "#56d364" if _cs_score >= 0.80 else
+                    "#fbbf24" if _cs_score >= 0.50 else
+                    "#ff6b6b"
+                )
+
+                st.markdown(
+                    f"""
+                    <div style='border-top:1px solid #21262d;margin:4px 0 8px 0;padding-top:10px;'>
+                      <div style='display:flex;align-items:center;gap:10px;margin-bottom:6px;'>
+                        <span style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#8b949e;
+                                     text-transform:uppercase;letter-spacing:0.5px;'>Completeness</span>
+                        <span style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#484f58;'>
+                          {_cs_category}</span>
+                        <div style='flex:1;background:#21262d;border-radius:4px;height:5px;overflow:hidden;'>
+                          <div style='width:{_cs_pct}%;background:{_cs_bar_color};height:100%;border-radius:4px;'></div>
+                        </div>
+                        <span style='font-family:IBM Plex Mono,monospace;font-size:12px;
+                                     color:{_cs_bar_color};min-width:36px;text-align:right;'>{_cs_pct}%</span>
+                      </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                if _cs_questions:
+                    st.markdown(
+                        "<p style='color:#8b949e;font-size:12px;margin:0 0 6px 0;'>"
+                        "To improve this description, consider answering:</p>",
+                        unsafe_allow_html=True,
+                    )
+                    for i, q in enumerate(_cs_questions, 1):
+                        st.markdown(
+                            f"<p style='color:#c9d1d9;font-size:13px;margin:0 0 4px 0;'>"
+                            f"<span style='color:#484f58;font-family:IBM Plex Mono,monospace;'>{i}.</span>"
+                            f"&nbsp;{q}</p>",
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.markdown(
+                        "<p style='color:#56d364;font-size:12px;margin:0;font-style:italic;'>"
+                        "✓ Description looks complete.</p>",
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            elif _cs and _cs.get("error"):
+                st.markdown(
+                    f"<span style='color:#484f58;font-size:11px;font-family:IBM Plex Mono,monospace;'>"
+                    f"Completeness check unavailable.</span>",
+                    unsafe_allow_html=True,
+                )
+
         elif _qp and _qp.get("error") and st.session_state.get("qp_input"):
             st.markdown(
                 f"<span style='color:#ff6b6b;font-size:12px;font-family:IBM Plex Mono,monospace;'>"

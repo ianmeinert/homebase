@@ -4,6 +4,16 @@ All notable changes to HOMEBASE are documented here.
 
 ---
 
+## v1.13.0
+
+- **Completeness Scorer** (`tools/completeness_agent.py`) — Groq/Llama 3.3 70B scores a free-text issue description against a per-category rubric (5 categories × 5 fields each); returns completeness score (0.0–1.0), list of missing/vague fields, and targeted follow-up questions
+- **Per-category rubrics** — HVAC, plumbing, electrical, appliance, and general each define 5 high-value fields (symptom, location, duration, severity signals, category-specific context); rubric drives both the system prompt and the scoring logic
+- **Integrated into Predictive Quadrant Preview expander** — completeness scorer fires automatically after quadrant resolves, using the same description and inferred category; no separate UI surface; renders as a labeled completeness bar + numbered follow-up question list below the quadrant badge
+- **Keyword-based category inference** (`_infer_category_from_description`) — lightweight pre-LLM pass maps description to rubric category; appliance keywords checked before HVAC to prevent false matches (e.g. "dryer not heating" → appliance, not HVAC)
+- **Dedup guard** — completeness call skipped if `desc + quadrant` key matches last scored input; avoids redundant API calls on re-render
+- **Graceful degradation** — errors surfaced inline as a muted note; never blocks quadrant badge or crashes UI
+- **Enterprise analog:** classifier-informed ticket creation assistant — predicts routing category, detects missing features that cause re-routing, prompts user to supply them before submission
+
 ## v1.12.0
 
 - **Predictive Quadrant Preview** (`tools/quadrant_preview.py`) — Groq/Llama 3.3 70B predicts urgency×impact quadrant (HU/HI, HU/LI, LU/HI, LU/LI) from a free-text issue description before any agent run is triggered

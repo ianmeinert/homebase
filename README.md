@@ -2,7 +2,7 @@
 
 ### Multi-Agent Home Management System — LangGraph + Groq
 
-### v1.12.0
+### v1.13.0
 
 A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
 orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
@@ -96,6 +96,7 @@ homebase/
 |   +-- rca_agent.py              # Cross-item root cause analysis agent with category scoping
 |   +-- whys_agent.py             # 5 Whys causal chain agent (category-based)
 |   +-- quadrant_preview.py       # Predictive quadrant classification from free-text description
+|   +-- completeness_agent.py     # Completeness scorer + follow-up question generator (per-category rubrics)
 |   +-- subagent_tools.py         # Rule-based tools (reference/fallback)
 |
 +-- scripts/
@@ -114,6 +115,7 @@ homebase/
     +-- test_rca_agent.py         # 45 tests — RCA output structure, confidence scoring, category scoping
     +-- test_whys_agent.py        # 34 tests — causal chain structure, auto-category resolution, safety keyword routing
     +-- test_quadrant_preview.py  # 47 tests — input guards, confidence normalization, LLM output validation, error handling
+    +-- test_completeness_agent.py # 60 tests — input guards, score normalization, rubrics, category inference, error handling
 ```
 
 ---
@@ -189,7 +191,7 @@ The UI provides:
 - **AI chart generation** — plain language chart requests routed to `chart_agent`; two-tier LLM pipeline (simple spec or full Plotly figure dict); renders in right column alongside rule-based charts
 - **Cross-item RCA** — natural language root cause analysis across the full registry or scoped to a category; pattern clusters, systemic narrative, prioritized recommendations, and confidence scoring; category override via dropdown selector
 - **5 Whys agent** — category-based causal chain analysis; builds a 5-level structured causal chain from registry items; stacks per-category panels; auto-triggers RCA synthesis when 2+ categories are analyzed
-- **Predictive Quadrant Preview** — free-text issue description → predicted quadrant (HU/HI, HU/LI, LU/HI, LU/LI) with confidence bar and rationale before any run is triggered; collapsible expander below the command field
+- **Predictive Quadrant Preview + Completeness Scorer** — collapsible expander below the command field; predicts quadrant (HU/HI, HU/LI, LU/HI, LU/LI) with confidence bar and rationale, then scores the description completeness against a per-category rubric and surfaces numbered follow-up questions for missing or underspecified fields
 - **Run history tab** — audit trail of all runs; expandable cards with quadrant breakdown, HITL decisions, deferred items, and full report
 
 ### CLI — Interactive HITL mode
@@ -219,7 +221,7 @@ uv run pytest -v
 uv run pytest tests/test_hitl.py -v
 ```
 
-**264 tests across 11 files.**
+**324 tests across 12 files.**
 
 | File | Tests | Covers |
 |---|---|---|
@@ -234,6 +236,7 @@ uv run pytest tests/test_hitl.py -v
 | `test_rca_agent.py` | 45 | Data loaders, RCA output structure, confidence scoring, category scoping, intent routing |
 | `test_whys_agent.py` | 34 | Causal chain structure, auto-category resolution, safety keyword routing, classify_input integration |
 | `test_quadrant_preview.py` | 47 | Input guards, confidence normalization, fence stripping, LLM output validation, error handling, API key handling |
+| `test_completeness_agent.py` | 60 | Input guards, score normalization, all five rubrics, category inference, list sync, error handling, API key handling |
 
 ---
 
@@ -298,6 +301,7 @@ for cost modeling, debugging, and enterprise justification.
 | Cross-item RCA | `rca_agent.py` — `run_rca()` / `run_rca_synthesis()` | 1 per RCA request |
 | 5 Whys causal chain | `whys_agent.py` — `run_whys()` | 1 per category analyzed |
 | Predictive quadrant preview | `quadrant_preview.py` — `predict_quadrant()` | 1 per preview (deduped) |
+| Completeness scoring | `completeness_agent.py` — `score_completeness()` | 1 per score (deduped) |
 
 **Typical LLM calls per full run:** 7–8 (1 orchestrator + 5 subagents + 1 synthesizer + 0–1 command routing)
 
@@ -321,7 +325,6 @@ medium-term extensions, and future research directions.
 
 Highlights:
 
-- **Completeness scorer** — watches item creation, prompts for missing high-value fields
 - **Document intake agent** — PDF/image → extract warranty, invoice, inspection data → registry (Gemini)
 - **Schema-aware metric discovery** — RAG-backed agent analyzes data schema for metric potential and gaps
 

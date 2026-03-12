@@ -13,29 +13,6 @@ _Nothing currently in active development._
 
 ## Next
 
-### Completeness Scorer + Prompt Agent
-
-**Provider:** Groq (Llama 3.3 70B)
-**Effort:** Medium
-
-Agent monitors item creation in real time. Scores the in-progress description against
-known high-value fields for the predicted category. If critical fields are missing or
-underspecified, a chatbot surfaces targeted prompting questions before submission.
-
-**Home analog:** User types "plumbing issue in bathroom" — agent detects missing
-urgency signals, location specificity, and duration — prompts: "How long has this been
-occurring?" and "Is there visible water damage?"
-
-**Enterprise analog:** Classifier-informed ticket creation assistant. ML model predicts routing
-category; agent detects missing features that cause re-routing; chatbot prompts user
-to supply them before submission.
-
-**Dependencies:** Requires a completeness rubric per category (rule-based or
-LLM-derived). No training data required — LLM evaluates completeness against
-category-specific criteria.
-
----
-
 ### Document Intake Agent
 
 **Provider:** Gemini 1.5 Flash (multimodal)
@@ -158,3 +135,4 @@ behind each node.
 | v1.10.0 | Cross-item RCA agent, category-scoped RCA, `updated_at` timestamp schema, registry seed expanded to 30 items, run history seed script |
 | v1.11.0 | 5 Whys causal chain agent (category-based), RCA synthesis mode, safety keyword category resolution, stacked whys UI panels, sample documents PDF |
 | v1.12.0 | Predictive Quadrant Preview (inline badge, confidence bar, Groq/Llama) |
+| v1.13.0 | Completeness Scorer + Prompt Agent (per-category rubrics, follow-up questions, integrated into Predictive Quadrant Preview expander) |
