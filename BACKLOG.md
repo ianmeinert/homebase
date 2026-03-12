@@ -13,34 +13,6 @@ _Nothing currently in active development._
 
 ## Next
 
-### Document Intake Agent
-
-**Provider:** Gemini 1.5 Flash (multimodal)
-**Effort:** Medium
-
-User uploads warranty documents, contractor invoices, work receipts, or inspection
-reports. Gemini extracts structured data (item ID, work performed, cost, date, contractor,
-scope) and either creates a new registry item or updates an existing one. Supports PDF
-and image input.
-
-**Home analog:** Upload a contractor invoice for HVAC repair → agent extracts
-date completed, cost, scope of work → closes HV-001, updates description with
-completion notes.
-
-**Enterprise analog:** Attachment scraping and classification. Extract structured information
-from screenshots, PDFs, and uploaded documents associated with work items.
-
-**Architecture note:** Introduces Gemini as a second LLM provider alongside Groq.
-This demonstrates a **multi-provider agentic architecture** — Groq/Llama for real-time
-orchestration and classification (speed-optimized), Gemini for document understanding
-(multimodal-optimized). Each model doing what it does best, coordinated by LangGraph.
-This is a key demo differentiator and directly supports provider-agnostic architecture
-required in regulated or constrained deployment environments.
-
----
-
-## Future / Research
-
 ### Schema-Aware Metric Discovery Agent
 
 **Provider:** TBD (embedding model + vector store)
@@ -136,3 +108,4 @@ behind each node.
 | v1.11.0 | 5 Whys causal chain agent (category-based), RCA synthesis mode, safety keyword category resolution, stacked whys UI panels, sample documents PDF |
 | v1.12.0 | Predictive Quadrant Preview (inline badge, confidence bar, Groq/Llama) |
 | v1.13.0 | Completeness Scorer + Prompt Agent (per-category rubrics, follow-up questions, integrated into Predictive Quadrant Preview expander) |
+| v1.14.0 | Document Intake Agent (Gemini 2.0 Flash multimodal, HITL registry updates, PDF + image support, Google API key integration) |

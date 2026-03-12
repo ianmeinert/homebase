@@ -2,7 +2,7 @@
 
 ### Multi-Agent Home Management System — LangGraph + Groq
 
-### v1.13.0
+### v1.14.0
 
 A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
 orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
@@ -97,6 +97,7 @@ homebase/
 |   +-- whys_agent.py             # 5 Whys causal chain agent (category-based)
 |   +-- quadrant_preview.py       # Predictive quadrant classification from free-text description
 |   +-- completeness_agent.py     # Completeness scorer + follow-up question generator (per-category rubrics)
+|   +-- intake_agent.py           # Document Intake Agent — Gemini multimodal, extracts structured data from docs
 |   +-- subagent_tools.py         # Rule-based tools (reference/fallback)
 |
 +-- scripts/
@@ -116,6 +117,7 @@ homebase/
     +-- test_whys_agent.py        # 34 tests — causal chain structure, auto-category resolution, safety keyword routing
     +-- test_quadrant_preview.py  # 47 tests — input guards, confidence normalization, LLM output validation, error handling
     +-- test_completeness_agent.py # 60 tests — input guards, score normalization, rubrics, category inference, error handling
+    +-- test_intake_agent.py       # 52 tests — input guards, doc types, confidence, field sanitization, item ID validation, error handling
 ```
 
 ---
@@ -192,6 +194,7 @@ The UI provides:
 - **Cross-item RCA** — natural language root cause analysis across the full registry or scoped to a category; pattern clusters, systemic narrative, prioritized recommendations, and confidence scoring; category override via dropdown selector
 - **5 Whys agent** — category-based causal chain analysis; builds a 5-level structured causal chain from registry items; stacks per-category panels; auto-triggers RCA synthesis when 2+ categories are analyzed
 - **Predictive Quadrant Preview + Completeness Scorer** — collapsible expander below the command field; predicts quadrant (HU/HI, HU/LI, LU/HI, LU/LI) with confidence bar and rationale, then scores the description completeness against a per-category rubric and surfaces numbered follow-up questions for missing or underspecified fields
+- **Document Intake Agent** — upload a warranty, invoice, receipt, or inspection report (PDF/image); Gemini 2.0 Flash extracts structured fields and matches to the closest registry item; HITL review panel requires explicit approval before any registry write
 - **Run history tab** — audit trail of all runs; expandable cards with quadrant breakdown, HITL decisions, deferred items, and full report
 
 ### CLI — Interactive HITL mode
@@ -221,7 +224,7 @@ uv run pytest -v
 uv run pytest tests/test_hitl.py -v
 ```
 
-**324 tests across 12 files.**
+**431 tests across 13 files.**
 
 | File | Tests | Covers |
 |---|---|---|
@@ -275,7 +278,7 @@ uv run pytest tests/test_hitl.py -v
 | 5 Whys causal chain | Structured RCA interview workflow |
 | Confidence scoring | Model uncertainty quantification for stakeholder trust |
 | Predictive quadrant preview | Ticket severity/routing prediction before submission |
-| Document intake agent *(backlog)* | Attachment scraping and structured data extraction |
+| Document intake agent | Attachment scraping and structured data extraction |
 | Multi-provider architecture *(backlog)* | Provider-agnostic deployment for constrained environments |
 
 ---
@@ -302,6 +305,7 @@ for cost modeling, debugging, and enterprise justification.
 | 5 Whys causal chain | `whys_agent.py` — `run_whys()` | 1 per category analyzed |
 | Predictive quadrant preview | `quadrant_preview.py` — `predict_quadrant()` | 1 per preview (deduped) |
 | Completeness scoring | `completeness_agent.py` — `score_completeness()` | 1 per score (deduped) |
+| Document intake | `intake_agent.py` — `process_document()` | 1 per uploaded document |
 
 **Typical LLM calls per full run:** 7–8 (1 orchestrator + 5 subagents + 1 synthesizer + 0–1 command routing)
 
@@ -325,7 +329,7 @@ medium-term extensions, and future research directions.
 
 Highlights:
 
-- **Document intake agent** — PDF/image → extract warranty, invoice, inspection data → registry (Gemini)
+- **Document intake agent** ✓ — PDF/image → extract warranty, invoice, inspection data → HITL registry update (Gemini 2.0 Flash)
 - **Schema-aware metric discovery** — RAG-backed agent analyzes data schema for metric potential and gaps
 
 ---
@@ -361,7 +365,7 @@ See [CHANGELOG.md](CHANGELOG.md).
   exists, all registry reads/writes go through SQLite.
 - `days_since_update` is computed on read from the `updated_at` timestamp column.
   Every registry write (add, update, close) sets `updated_at = datetime('now')`.
-- The document intake agent (backlog) will introduce Gemini 1.5 Flash as a second
+- The document intake agent (v1.14.0) introduced Gemini 2.0 Flash as a second
   LLM provider for multimodal document understanding, alongside Groq/Llama for
   real-time orchestration. This demonstrates a provider-agnostic multi-model
   architecture — each model used where it performs best.

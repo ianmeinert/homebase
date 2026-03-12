@@ -96,17 +96,40 @@ def _highest_urgency_category_for_safety() -> str | None:
         return None
 
 
+_ITEM_ID_CATEGORY_MAP = {
+    "HV":  "hvac",
+    "PLB": "plumbing",
+    "EL":  "electrical",
+    "APP": "appliance",
+    "GEN": "general",
+}
+
+
+def extract_rca_item_id(instruction: str) -> str | None:
+    """Return the item ID if one is present in the instruction, else None."""
+    m = _ITEM_ID_PAT.search(instruction)
+    return m.group(1).upper() if m else None
+
+
 def extract_rca_category(instruction: str) -> str | None:
     """Return canonical category name if instruction scopes the RCA/5 Whys, else None.
 
     Handles:
     - Explicit category names (hvac, electrical, plumbing, appliance, general)
-    - Safety/fire/risk keywords — resolved to highest-urgency open category
+    - Item IDs (e.g. APP-001 -> appliance, HV-002 -> hvac)
+    - Safety/fire/risk keywords -- resolved to highest-urgency open category
     """
+    # Item ID takes priority -- derive category from prefix
+    m_id = _ITEM_ID_PAT.search(instruction)
+    if m_id:
+        prefix = re.match(r'([A-Za-z]+)', m_id.group(1)).group(1).upper()
+        if prefix in _ITEM_ID_CATEGORY_MAP:
+            return _ITEM_ID_CATEGORY_MAP[prefix]
+
     m = _CATEGORY_PAT.search(instruction)
     if m:
         return _CATEGORY_MAP.get(m.group(1).lower())
-    # Safety intent — resolve to highest-urgency category
+    # Safety intent -- resolve to highest-urgency category
     if _SAFETY_PAT.search(instruction):
         return _highest_urgency_category_for_safety()
     return None
@@ -141,12 +164,12 @@ def classify_input(instruction: str, api_key: str | None = None) -> str:
     has_rca_kw       = bool(_RCA_KEYWORDS.search(instruction))
     has_whys_kw      = bool(_WHYS_KEYWORDS.search(instruction))
 
-    # Unambiguous: 5 Whys keyword → whys intent (highest priority)
-    if has_whys_kw and not has_item_id and not has_reg_keyword:
+    # Unambiguous: 5 Whys keyword → whys intent (highest priority, even with item ID)
+    if has_whys_kw:
         return "whys"
 
-    # Unambiguous: RCA keyword → rca intent (before chart/run)
-    if has_rca_kw and not has_item_id and not has_reg_keyword:
+    # Unambiguous: RCA keyword → rca intent (before chart/run, even with item ID)
+    if has_rca_kw:
         return "rca"
 
     # Unambiguous: chart keyword → chart intent (before run/query to avoid misroute)

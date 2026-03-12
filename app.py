@@ -34,6 +34,7 @@ except ImportError:
 
 # -- LangSmith tracing (activates if LANGCHAIN_API_KEY is set in .env) --------
 from tools.tracing import init_tracing, is_tracing_enabled, get_project_name, get_run_metadata
+from tools.intake_agent import process_document as _process_document
 init_tracing()
 
 # -- Page config --------------------------------------------------------------
@@ -328,6 +329,10 @@ def init_state():
         "qp_input":      "",          # last input that was previewed (dedup)
         "cs_result":     None,        # CompletenessResult dict or None
         "cs_input":      "",          # last input+category that was scored (dedup key)
+        "google_api_key": os.environ.get("GOOGLE_API_KEY", ""),  # Gemini API key
+        "intake_result":  None,       # IntakeResult dict or None
+        "intake_updates": {},         # editable proposed updates for HITL
+        "intake_item_id": "",         # selected registry item ID for intake
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -469,9 +474,25 @@ with st.sidebar:
 
     key_set = bool(st.session_state.api_key.strip())
     if key_set:
-        st.markdown("<p style='font-size:11px;color:#56d364;font-family:IBM Plex Mono,monospace;'>OK API key set</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:11px;color:#56d364;font-family:IBM Plex Mono,monospace;'>OK Groq key set</p>", unsafe_allow_html=True)
     else:
-        st.markdown("<p style='font-size:11px;color:#f78166;font-family:IBM Plex Mono,monospace;'>NO API key required</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:11px;color:#f78166;font-family:IBM Plex Mono,monospace;'>NO Groq key required</p>", unsafe_allow_html=True)
+
+    google_key_input = st.text_input(
+        "Google API Key",
+        value=st.session_state.google_api_key,
+        type="password",
+        label_visibility="collapsed",
+        placeholder="AIza...",
+    )
+    if google_key_input != st.session_state.google_api_key:
+        st.session_state.google_api_key = google_key_input
+
+    google_key_set = bool(st.session_state.google_api_key.strip())
+    if google_key_set:
+        st.markdown("<p style='font-size:11px;color:#56d364;font-family:IBM Plex Mono,monospace;'>OK Google key set</p>", unsafe_allow_html=True)
+    else:
+        st.markdown("<p style='font-size:11px;color:#484f58;font-family:IBM Plex Mono,monospace;'>-- Google key (Document Intake)</p>", unsafe_allow_html=True)
 
     st.divider()
     st.markdown("#### SYSTEM")
@@ -734,6 +755,187 @@ with main_tabs[0]:
             )
     # -----------------------------------------------------------------------------
 
+    # -- Document Intake -----------------------------------------------------------
+    with st.expander("⬡  Document Intake", expanded=False):
+        st.caption("Upload a warranty, invoice, receipt, or inspection report to extract data and update a registry item.")
+
+        _google_key = st.session_state.get("google_api_key", "").strip()
+        _no_google_key = not _google_key
+        _intake_disabled = _no_google_key
+
+        if _no_google_key:
+            st.markdown(
+                "<span style='color:#484f58;font-size:12px;font-family:IBM Plex Mono,monospace;'>"
+                "Google API key required — add GOOGLE_API_KEY in the sidebar.</span>",
+                unsafe_allow_html=True,
+            )
+        else:
+            _uploaded_file = st.file_uploader(
+                "Document",
+                type=["pdf", "png", "jpg", "jpeg", "webp"],
+                label_visibility="collapsed",
+                key="intake_file_upload",
+            )
+            _file_ready = _uploaded_file is not None
+            _intake_submitted = st.button(
+                ">  ANALYZE",
+                disabled=not _file_ready,
+                key="intake_analyze_btn",
+                use_container_width=True,
+            )
+
+            if _intake_submitted and _uploaded_file is not None:
+                _file_bytes = _uploaded_file.read()
+                _mime_type  = _uploaded_file.type or "application/pdf"
+                _registry   = _get_registry()
+                with st.spinner("Intake agent analyzing document..."):
+                    _intake_result = _process_document(
+                        _file_bytes, _mime_type, _registry, api_key=_google_key
+                    )
+                st.session_state.intake_result  = _intake_result
+                st.session_state.intake_updates = dict(_intake_result.get("proposed_updates", {}))
+                st.session_state.intake_item_id = _intake_result.get("proposed_item_id", "")
+
+            # -- Intake result display + HITL --
+            _ir = st.session_state.get("intake_result")
+            if _ir:
+                if _ir.get("error"):
+                    st.markdown(
+                        f"<div style='background:#1a0a0a;border:1px solid #ff6b6b;border-radius:6px;"
+                        f"padding:10px 14px;font-size:12px;color:#ff6b6b;font-family:IBM Plex Mono,monospace;'>"
+                        f"Intake error: {_ir['error']}</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    _doc_type   = _ir.get("document_type", "unknown").upper()
+                    _conf       = _ir.get("confidence", 0.0)
+                    _conf_pct   = int(_conf * 100)
+                    _rationale  = _ir.get("rationale", "")
+                    _exf        = _ir.get("extracted_fields", {})
+                    _item_id    = st.session_state.get("intake_item_id", "")
+                    _conf_color = (
+                        "#56d364" if _conf >= 0.80 else
+                        "#fbbf24" if _conf >= 0.55 else
+                        "#ff6b6b"
+                    )
+
+                    # Document type badge + confidence
+                    st.markdown(
+                        f"""
+                        <div style='display:flex;align-items:center;gap:14px;margin:8px 0 6px 0;'>
+                          <span style='background:#1f2d1f;color:#6ee7b7;border:1px solid #064e3b;
+                                       padding:2px 8px;border-radius:4px;font-family:IBM Plex Mono,monospace;
+                                       font-size:12px;font-weight:600;'>{_doc_type}</span>
+                          <div style='flex:1;background:#21262d;border-radius:4px;height:6px;overflow:hidden;'>
+                            <div style='width:{_conf_pct}%;background:{_conf_color};height:100%;border-radius:4px;'></div>
+                          </div>
+                          <span style='font-family:IBM Plex Mono,monospace;font-size:12px;
+                                       color:{_conf_color};min-width:36px;text-align:right;'>{_conf_pct}%</span>
+                        </div>
+                        <p style='color:#8b949e;font-size:12px;margin:0 0 10px 0;font-style:italic;'>{_rationale}</p>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+                    # Extracted fields summary
+                    if _exf:
+                        _field_rows = "".join(
+                            f"<div style='margin:3px 0;'>"
+                            f"<span style='color:#484f58;font-family:IBM Plex Mono,monospace;font-size:11px;'>{k}&nbsp;&nbsp;</span>"
+                            f"<span style='color:#c9d1d9;font-size:12px;'>{v}</span></div>"
+                            for k, v in _exf.items() if v
+                        )
+                        st.markdown(
+                            f"<div style='background:#161b22;border:1px solid #21262d;border-radius:6px;"
+                            f"padding:10px 14px;margin-bottom:12px;'>{_field_rows}</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    # HITL review panel
+                    st.markdown(
+                        "<p style='color:#8b949e;font-size:12px;margin:0 0 6px 0;"
+                        "font-family:IBM Plex Mono,monospace;text-transform:uppercase;"
+                        "letter-spacing:0.5px;'>Review proposed updates</p>",
+                        unsafe_allow_html=True,
+                    )
+
+                    _registry_full = _get_registry()
+                    _valid_ids     = [""] + [i["id"] for i in _registry_full]
+                    _cur_item_id   = st.session_state.get("intake_item_id", "")
+                    _id_index      = _valid_ids.index(_cur_item_id) if _cur_item_id in _valid_ids else 0
+
+                    _selected_id = st.selectbox(
+                        "Registry item",
+                        options=_valid_ids,
+                        index=_id_index,
+                        key="intake_id_select",
+                    )
+                    st.session_state.intake_item_id = _selected_id
+
+                    _cur_updates = st.session_state.get("intake_updates", {})
+
+                    _new_desc = st.text_area(
+                        "Description",
+                        value=_cur_updates.get("description", ""),
+                        height=80,
+                        key="intake_desc_edit",
+                    )
+                    _new_status = st.selectbox(
+                        "Status",
+                        options=["open", "in_progress", "closed"],
+                        index=["open", "in_progress", "closed"].index(
+                            _cur_updates.get("status", "open")
+                        ),
+                        key="intake_status_select",
+                    )
+
+                    _col_approve, _col_discard = st.columns([1, 1])
+                    with _col_approve:
+                        _approved = st.button(
+                            "✓  Apply update",
+                            disabled=not _selected_id,
+                            key="intake_approve_btn",
+                            use_container_width=True,
+                        )
+                    with _col_discard:
+                        _discarded = st.button(
+                            "✕  Discard",
+                            key="intake_discard_btn",
+                            use_container_width=True,
+                        )
+
+                    if _approved and _selected_id:
+                        from tools.registry_tools import update_item as _update_item
+                        _final_updates = {}
+                        if _new_desc.strip():
+                            _final_updates["description"] = _new_desc.strip()
+                        _final_updates["status"] = _new_status
+                        _result = _update_item(_selected_id, _final_updates)
+                        if _result:
+                            st.markdown(
+                                f"<div style='background:#0d1f0d;border:1px solid #238636;border-radius:6px;"
+                                f"padding:10px 14px;font-size:12px;color:#56d364;font-family:IBM Plex Mono,monospace;'>"
+                                f"✓ {_selected_id} updated — status: {_new_status}</div>",
+                                unsafe_allow_html=True,
+                            )
+                            st.session_state.intake_result  = None
+                            st.session_state.intake_updates = {}
+                            st.session_state.intake_item_id = ""
+                        else:
+                            st.markdown(
+                                f"<div style='background:#1a0a0a;border:1px solid #ff6b6b;border-radius:6px;"
+                                f"padding:10px 14px;font-size:12px;color:#ff6b6b;font-family:IBM Plex Mono,monospace;'>"
+                                f"Update failed — item {_selected_id} not found.</div>",
+                                unsafe_allow_html=True,
+                            )
+
+                    if _discarded:
+                        st.session_state.intake_result  = None
+                        st.session_state.intake_updates = {}
+                        st.session_state.intake_item_id = ""
+                        st.rerun()
+    # -----------------------------------------------------------------------------
+
     if submitted and unified_input.strip():
         _input        = unified_input.strip()
         st.session_state.pending_input = ""
@@ -775,11 +977,13 @@ with main_tabs[0]:
 
         elif _intent_class == "whys":
             from tools.whys_agent import run_whys
-            # Extract category from instruction — defaults to highest-severity if not specified
+            from tools.update_agent import extract_rca_item_id
+            # Extract item ID first — if present, scopes to single item
+            _whys_item_id = extract_rca_item_id(_input)
             _whys_cat = extract_rca_category(_input) or None
-            _cat_label = f"'{_whys_cat}'" if _whys_cat else "highest-severity category"
+            _cat_label = f"'{_whys_item_id}'" if _whys_item_id else f"'{_whys_cat}'" if _whys_cat else "highest-severity category"
             with st.spinner(f"5 Whys agent analyzing {_cat_label}..."):
-                _whys = run_whys(_input, category=_whys_cat, api_key=_api_key)
+                _whys = run_whys(_input, category=_whys_cat, item_id=_whys_item_id, api_key=_api_key)
             # Append to whys_results, replacing any prior result for the same category
             _existing = [r for r in st.session_state.whys_results
                          if r.get("category") != _whys.get("category")]
@@ -901,7 +1105,7 @@ with main_tabs[0]:
                         _sev    = _cl.get("severity", "moderate")
                         _sc     = _sev_color.get(_sev, "#f5a623")
                         _cl_conf = int(float(_cl.get("confidence", 0.0)) * 100)
-                        _ids    = ", ".join(_cl.get("item_ids", []))
+                        _ids = ", ".join(str(i) for i in _cl.get("item_ids", []))
                         st.markdown(
                             f"<div style='background:#161b22;border:1px solid {_sc};"
                             f"border-radius:8px;padding:12px 14px;margin-bottom:10px;'>"

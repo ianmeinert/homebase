@@ -51,6 +51,27 @@ def _load_category_items(category: str) -> list[dict]:
     return records
 
 
+def _load_single_item(item_id: str) -> list[dict]:
+    """Load a single registry item by ID, returned as a one-element list for run_whys."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id, category, title, description, urgency, impact, updated_at, status "
+        "FROM registry WHERE id = ?",
+        (item_id.upper(),)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return []
+    keys = ["id", "category", "title", "description", "urgency", "impact", "updated_at", "status"]
+    d = dict(zip(keys, row))
+    try:
+        updated = datetime.datetime.fromisoformat(d["updated_at"])
+        d["days_since_update"] = (datetime.datetime.now() - updated).days
+    except (ValueError, TypeError):
+        d["days_since_update"] = 0
+    return [d]
+
+
 def _highest_severity_category() -> str | None:
     """Return the category with the highest average urgency * impact among open items."""
     conn = get_conn()
@@ -120,11 +141,14 @@ Rules:
 def run_whys(
     instruction: str,
     category: str | None = None,
+    item_id: str | None = None,
     api_key: str | None = None,
 ) -> dict:
     """
-    Perform a 5 Whys causal chain analysis on registry items for a given category.
-    If category is None, uses the highest-severity open category automatically.
+    Perform a 5 Whys causal chain analysis on registry items.
+    If item_id is provided, scopes analysis to that single item.
+    If category is provided, analyzes all items in that category.
+    If neither, uses the highest-severity open category automatically.
 
     Returns a dict with keys:
       category, problem_statement, causal_chain, root_cause,
@@ -136,20 +160,27 @@ def run_whys(
         "confidence": 0.0, "confidence_rationale": "", "item_count": 0, "error": None,
     }
 
-    # Resolve category
-    resolved = category
-    if not resolved:
-        resolved = _highest_severity_category()
-    if not resolved:
-        return {**_empty, "error": "No open items found in registry."}
+    # Item ID takes priority -- load single item and derive category from it
+    if item_id:
+        items = _load_single_item(item_id)
+        if not items:
+            return {**_empty, "error": f"Item '{item_id}' not found in registry."}
+        resolved = items[0]["category"]
+    else:
+        # Resolve category
+        resolved = category
+        if not resolved:
+            resolved = _highest_severity_category()
+        if not resolved:
+            return {**_empty, "error": "No open items found in registry."}
 
-    resolved = resolved.lower()
+        resolved = resolved.lower()
 
-    # Load items
-    items = _load_category_items(resolved)
-    if not items:
-        return {**_empty, "category": resolved,
-                "error": f"No open items found in '{resolved}' category."}
+        # Load items
+        items = _load_category_items(resolved)
+        if not items:
+            return {**_empty, "category": resolved,
+                    "error": f"No open items found in '{resolved}' category."}
 
     # Trim descriptions to avoid token bloat
     items_trimmed = [

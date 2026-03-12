@@ -190,6 +190,11 @@ def run_rca(instruction: str, category: str | None = None, api_key=None) -> dict
         ])
         raw = response.content.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
         result = json.loads(raw)
+        
+        clusters = result.get("pattern_clusters", [])
+        for cl in clusters:
+            if "item_ids" in cl:
+                cl["item_ids"] = [str(i) for i in cl["item_ids"]]
 
         return {
             "clusters":             result.get("pattern_clusters", []),
@@ -321,6 +326,11 @@ def run_rca_synthesis(whys_results: list[dict], api_key=None) -> dict:
         ])
         raw = response.content.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
         result = json.loads(raw)
+        
+        clusters = result.get("pattern_clusters", [])
+        for cl in clusters:
+            if "item_ids" in cl:
+                cl["item_ids"] = [str(i) for i in cl["item_ids"]]
 
         total_items = sum(r.get("item_count", 0) for r in valid)
 
