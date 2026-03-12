@@ -4,6 +4,14 @@ All notable changes to HOMEBASE are documented here.
 
 ---
 
+## v1.12.0
+
+- **Predictive Quadrant Preview** (`tools/quadrant_preview.py`) — Groq/Llama 3.3 70B predicts urgency×impact quadrant (HU/HI, HU/LI, LU/HI, LU/LI) from a free-text issue description before any agent run is triggered
+- **Inline preview badge** — collapsible expander below the command field renders the predicted quadrant badge, a confidence percentage bar (color-coded green/amber/red), and a one-sentence rationale; powered by `on_change` callback to avoid unnecessary API calls
+- **Deduplication guard** — preview skips the LLM call if the input hasn't changed since the last prediction (compares against `qp_input` in session state)
+- **Graceful degradation** — errors surface inline without crashing the UI; badge renders only when a valid quadrant is returned
+- **Enterprise analog:** ticket severity/routing prediction before submission — reduces SME group misassignment in high-volume intake pipelines
+
 ## v1.11.0
 
 - **5 Whys causal chain agent** (`tools/whys_agent.py`) — operates directly on registry items for a given category; no prior RCA dependency. Builds a structured 5-level causal chain (each "because" becomes the next "why"), produces a root cause statement, corrective action, and confidence score with rationale

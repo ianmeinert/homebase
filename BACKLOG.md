@@ -13,25 +13,6 @@ _Nothing currently in active development._
 
 ## Next
 
-### Predictive Quadrant Preview
-
-**Provider:** Groq (Llama 3.3 70B)
-**Effort:** Low
-
-Before committing to a full agent run, user types a rough description of an issue and
-receives an LLM-predicted quadrant classification (HU/HI, HU/LI, LU/HI, LU/LI) with
-a confidence score. Surfaces inline in the command field area as a preview badge.
-
-**Home analog:** "My furnace is making a grinding noise and it's January" →
-predicted HU/HI (0.91 confidence) before any run is triggered.
-
-**Enterprise analog:** Predict ticket severity/routing before submission to reduce re-routing
-and SME group misassignment.
-
----
-
-## Medium
-
 ### Completeness Scorer + Prompt Agent
 
 **Provider:** Groq (Llama 3.3 70B)
@@ -176,3 +157,4 @@ behind each node.
 | v1.9.0 | AI chart generation agent (two-tier), unified command field chart routing |
 | v1.10.0 | Cross-item RCA agent, category-scoped RCA, `updated_at` timestamp schema, registry seed expanded to 30 items, run history seed script |
 | v1.11.0 | 5 Whys causal chain agent (category-based), RCA synthesis mode, safety keyword category resolution, stacked whys UI panels, sample documents PDF |
+| v1.12.0 | Predictive Quadrant Preview (inline badge, confidence bar, Groq/Llama) |

@@ -324,6 +324,8 @@ def init_state():
         "rca_result":    None,        # synthesis RCA result from multiple 5 Whys
         "rca_category":  None,        # unused — kept for backward compat
         "whys_results":  [],          # list of 5 Whys results, one per category run
+        "qp_result":     None,        # QuadrantPreview result dict or None
+        "qp_input":      "",          # last input that was previewed (dedup)
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -539,6 +541,87 @@ with main_tabs[0]:
                 disabled=_cmd_disabled or _no_key,
                 width="stretch",
             )
+
+    # -- Predictive Quadrant Preview -----------------------------------------------
+    # Renders a live badge showing predicted quadrant + confidence before any run.
+    # Uses a separate text input (outside form) so on_change fires per keystroke.
+    # The form input above handles actual submission; this drives the preview only.
+    from tools.quadrant_preview import predict_quadrant as _predict_quadrant
+
+    def _run_preview():
+        _desc = st.session_state.get("qp_live_input", "").strip()
+        if len(_desc) < 8:
+            st.session_state.qp_result = None
+            st.session_state.qp_input  = ""
+            return
+        if _desc == st.session_state.get("qp_input", ""):
+            return  # no change, skip API call
+        _api_key_qp = st.session_state.api_key.strip() or None
+        st.session_state.qp_result = _predict_quadrant(_desc, api_key=_api_key_qp)
+        st.session_state.qp_input  = _desc
+
+    with st.expander("⬡  Predictive Quadrant Preview", expanded=False):
+        st.caption("Type an issue description to predict its urgency/impact quadrant before running.")
+        _qp_disabled = _cmd_disabled or _no_key
+        st.text_input(
+            "Issue description",
+            key="qp_live_input",
+            placeholder='e.g. "furnace making grinding noise and it\'s January"',
+            disabled=_qp_disabled,
+            label_visibility="collapsed",
+            on_change=_run_preview,
+        )
+
+        _qp = st.session_state.get("qp_result")
+        if _qp and not _qp.get("error") and _qp.get("quadrant"):
+            _q   = _qp["quadrant"]
+            _conf = _qp["confidence"]
+            _rat  = _qp.get("rationale", "")
+            _conf_pct = int(_conf * 100)
+
+            # Badge color map (matches existing badge CSS classes)
+            _badge_class = {
+                "HU/HI": "badge-hu-hi",
+                "HU/LI": "badge-hu-li",
+                "LU/HI": "badge-lu-hi",
+                "LU/LI": "badge-lu-li",
+            }.get(_q, "badge-lu-li")
+
+            # Confidence bar color
+            _bar_color = (
+                "#56d364" if _conf >= 0.80 else
+                "#fbbf24" if _conf >= 0.60 else
+                "#ff6b6b"
+            )
+
+            st.markdown(
+                f"""
+                <div style='display:flex;align-items:center;gap:14px;margin:8px 0 4px 0;'>
+                    <span class='{_badge_class}'>{_q}</span>
+                    <div style='flex:1;background:#21262d;border-radius:4px;height:6px;overflow:hidden;'>
+                        <div style='width:{_conf_pct}%;background:{_bar_color};height:100%;border-radius:4px;
+                                    transition:width 0.3s ease;'></div>
+                    </div>
+                    <span style='font-family:IBM Plex Mono,monospace;font-size:12px;color:{_bar_color};
+                                 min-width:36px;text-align:right;'>{_conf_pct}%</span>
+                </div>
+                <p style='color:#8b949e;font-size:12px;margin:4px 0 0 0;font-style:italic;'>{_rat}</p>
+                """,
+                unsafe_allow_html=True,
+            )
+        elif _qp and _qp.get("error") and st.session_state.get("qp_input"):
+            st.markdown(
+                f"<span style='color:#ff6b6b;font-size:12px;font-family:IBM Plex Mono,monospace;'>"
+                f"Preview unavailable: {_qp['error']}</span>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                "<span style='color:#484f58;font-size:12px;font-family:IBM Plex Mono,monospace;'>"
+                "Awaiting input…</span>",
+                unsafe_allow_html=True,
+            )
+    # -----------------------------------------------------------------------------
 
     if submitted and unified_input.strip():
         _input        = unified_input.strip()
