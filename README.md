@@ -2,7 +2,7 @@
 
 ### Multi-Agent Home Management System — LangGraph + Groq
 
-### v1.10.0
+### v1.12.0
 
 A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
 orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
@@ -94,6 +94,8 @@ homebase/
 |   +-- update_agent.py           # Natural language registry update agent + intent router
 |   +-- chart_agent.py            # AI chart generation agent (two-tier: simple spec / complex figure dict)
 |   +-- rca_agent.py              # Cross-item root cause analysis agent with category scoping
+|   +-- whys_agent.py             # 5 Whys causal chain agent (category-based)
+|   +-- quadrant_preview.py       # Predictive quadrant classification from free-text description
 |   +-- subagent_tools.py         # Rule-based tools (reference/fallback)
 |
 +-- scripts/
@@ -109,6 +111,9 @@ homebase/
     +-- test_hitl.py              # 31 tests — HITL briefing, deferral logic, interrupt/resume
     +-- test_update_agent.py      # 16 tests — NL interpretation, field validation, apply_update
     +-- test_chart_agent.py       # 25 tests — chart spec building, complex figure, intent routing
+    +-- test_rca_agent.py         # 45 tests — RCA output structure, confidence scoring, category scoping
+    +-- test_whys_agent.py        # 34 tests — causal chain structure, auto-category resolution, safety keyword routing
+    +-- test_quadrant_preview.py  # 47 tests — input guards, confidence normalization, LLM output validation, error handling
 ```
 
 ---
@@ -183,6 +188,8 @@ The UI provides:
 - **Unified command field** — single input handles run triggers, registry commands (add, update, close), and chart requests via hybrid intent routing; Enter or click to submit
 - **AI chart generation** — plain language chart requests routed to `chart_agent`; two-tier LLM pipeline (simple spec or full Plotly figure dict); renders in right column alongside rule-based charts
 - **Cross-item RCA** — natural language root cause analysis across the full registry or scoped to a category; pattern clusters, systemic narrative, prioritized recommendations, and confidence scoring; category override via dropdown selector
+- **5 Whys agent** — category-based causal chain analysis; builds a 5-level structured causal chain from registry items; stacks per-category panels; auto-triggers RCA synthesis when 2+ categories are analyzed
+- **Predictive Quadrant Preview** — free-text issue description → predicted quadrant (HU/HI, HU/LI, LU/HI, LU/LI) with confidence bar and rationale before any run is triggered; collapsible expander below the command field
 - **Run history tab** — audit trail of all runs; expandable cards with quadrant breakdown, HITL decisions, deferred items, and full report
 
 ### CLI — Interactive HITL mode
@@ -212,7 +219,7 @@ uv run pytest -v
 uv run pytest tests/test_hitl.py -v
 ```
 
-**217 tests across 9 files.**
+**264 tests across 11 files.**
 
 | File | Tests | Covers |
 |---|---|---|
@@ -225,6 +232,8 @@ uv run pytest tests/test_hitl.py -v
 | `test_update_agent.py` | 16 | NL interpretation, field validation, clamping, apply_update path |
 | `test_chart_agent.py` | 25 | Chart spec building, complex figure dict, intent routing, data loading |
 | `test_rca_agent.py` | 45 | Data loaders, RCA output structure, confidence scoring, category scoping, intent routing |
+| `test_whys_agent.py` | 34 | Causal chain structure, auto-category resolution, safety keyword routing, classify_input integration |
+| `test_quadrant_preview.py` | 47 | Input guards, confidence normalization, fence stripping, LLM output validation, error handling, API key handling |
 
 ---
 
@@ -260,7 +269,9 @@ uv run pytest tests/test_hitl.py -v
 | LangSmith tracing | Audit trail of model reasoning for stakeholder validation |
 | Cross-item RCA | Systemic root cause analysis across work item categories |
 | Category-scoped RCA | Domain-targeted root cause analysis |
+| 5 Whys causal chain | Structured RCA interview workflow |
 | Confidence scoring | Model uncertainty quantification for stakeholder trust |
+| Predictive quadrant preview | Ticket severity/routing prediction before submission |
 | Document intake agent *(backlog)* | Attachment scraping and structured data extraction |
 | Multi-provider architecture *(backlog)* | Provider-agnostic deployment for constrained environments |
 
@@ -284,6 +295,9 @@ for cost modeling, debugging, and enterprise justification.
 | Chart spec generation (simple) | `chart_agent.py` — `_build_from_spec()` | 1 per simple chart |
 | Chart figure generation (complex) | `chart_agent.py` — `_build_complex()` | 1 per complex chart |
 | Registry command interpretation | `update_agent.py` — `route_intent`, `interpret_update`, `interpret_add` | 1–2 per command |
+| Cross-item RCA | `rca_agent.py` — `run_rca()` / `run_rca_synthesis()` | 1 per RCA request |
+| 5 Whys causal chain | `whys_agent.py` — `run_whys()` | 1 per category analyzed |
+| Predictive quadrant preview | `quadrant_preview.py` — `predict_quadrant()` | 1 per preview (deduped) |
 
 **Typical LLM calls per full run:** 7–8 (1 orchestrator + 5 subagents + 1 synthesizer + 0–1 command routing)
 
@@ -307,8 +321,6 @@ medium-term extensions, and future research directions.
 
 Highlights:
 
-- **5 Whys follow-on agent** — interactive causal drill-down from RCA cluster
-- **Predictive quadrant preview** — LLM predicts HU/HI before a full run from free-text input
 - **Completeness scorer** — watches item creation, prompts for missing high-value fields
 - **Document intake agent** — PDF/image → extract warranty, invoice, inspection data → registry (Gemini)
 - **Schema-aware metric discovery** — RAG-backed agent analyzes data schema for metric potential and gaps
