@@ -254,3 +254,159 @@ class TestRcaIntentRouting:
     def test_non_rca_phrases_not_rca(self, phrase):
         from tools.update_agent import classify_input
         assert classify_input(phrase) != "rca", f"Expected non-rca for: {phrase!r}"
+
+
+# ---------------------------------------------------------------------------
+# Synthesis mode tests
+# ---------------------------------------------------------------------------
+
+import tools.rca_agent
+
+SAMPLE_WHYS_RESULTS = [
+    {
+        "category": "electrical",
+        "problem_statement": "Multiple electrical items deferred.",
+        "causal_chain": [],
+        "root_cause": "No safety-severity tier in the data model.",
+        "corrective_action": "Add safety_critical flag.",
+        "confidence": 0.82,
+        "confidence_rationale": "Clear pattern.",
+        "item_count": 4,
+        "error": None,
+    },
+    {
+        "category": "hvac",
+        "problem_statement": "HVAC items aging without scheduled service.",
+        "causal_chain": [],
+        "root_cause": "No preventive maintenance schedule exists.",
+        "corrective_action": "Establish annual HVAC service contract.",
+        "confidence": 0.75,
+        "confidence_rationale": "Consistent staleness.",
+        "item_count": 5,
+        "error": None,
+    },
+]
+
+GOOD_SYNTHESIS_RESPONSE = {
+    "confidence": 0.78,
+    "confidence_rationale": "Two corroborating root causes with consistent patterns.",
+    "pattern_clusters": [
+        {
+            "cluster_id": "no_maintenance_process",
+            "label": "Absence of Preventive Maintenance Process",
+            "risk_factor": "No structured maintenance lifecycle across categories",
+            "item_ids": [],
+            "categories": ["electrical", "hvac"],
+            "severity": "high",
+            "confidence": 0.78,
+        }
+    ],
+    "narrative": "Both electrical and HVAC root causes trace to the same systemic gap: no preventive maintenance process. Electrical items are deferred because safety is not distinguished from cosmetic issues. HVAC items age without service because no schedule drives action. The meta-pattern is reactive-only maintenance.",
+    "recommendations": [
+        {
+            "priority": 1,
+            "action": "Establish a structured preventive maintenance program with safety-critical tiers.",
+            "rationale": "Addresses the common root cause across both categories.",
+            "addresses_clusters": ["no_maintenance_process"],
+            "urgency": "short_term",
+        }
+    ],
+}
+
+
+def make_mock_model(response_dict):
+    return make_synth_model(response_dict)
+
+def make_synth_model(response_dict):
+    class MockMsg:
+        content = json.dumps(response_dict)
+    class MockModel:
+        def invoke(self, messages):
+            return MockMsg()
+    return MockModel()
+
+
+class TestRCASynthesis:
+    def test_empty_whys_returns_error(self):
+        result = tools.rca_agent.run_rca_synthesis([])
+        assert result["error"] is not None
+
+    def test_all_errored_whys_returns_error(self):
+        errored = [{"error": "fail", "root_cause": "", "category": "electrical"}]
+        result = tools.rca_agent.run_rca_synthesis(errored)
+        assert result["error"] is not None
+
+    def test_valid_synthesis_no_error(self, monkeypatch):
+        monkeypatch.setattr(tools.rca_agent, "get_model",
+                            lambda api_key=None: make_synth_model(GOOD_SYNTHESIS_RESPONSE))
+        result = tools.rca_agent.run_rca_synthesis(SAMPLE_WHYS_RESULTS)
+        assert result["error"] is None
+
+    def test_synthesized_from_populated(self, monkeypatch):
+        monkeypatch.setattr(tools.rca_agent, "get_model",
+                            lambda api_key=None: make_synth_model(GOOD_SYNTHESIS_RESPONSE))
+        result = tools.rca_agent.run_rca_synthesis(SAMPLE_WHYS_RESULTS)
+        assert set(result["synthesized_from"]) == {"electrical", "hvac"}
+
+    def test_clusters_returned(self, monkeypatch):
+        monkeypatch.setattr(tools.rca_agent, "get_model",
+                            lambda api_key=None: make_synth_model(GOOD_SYNTHESIS_RESPONSE))
+        result = tools.rca_agent.run_rca_synthesis(SAMPLE_WHYS_RESULTS)
+        assert len(result["clusters"]) >= 1
+
+    def test_narrative_populated(self, monkeypatch):
+        monkeypatch.setattr(tools.rca_agent, "get_model",
+                            lambda api_key=None: make_synth_model(GOOD_SYNTHESIS_RESPONSE))
+        result = tools.rca_agent.run_rca_synthesis(SAMPLE_WHYS_RESULTS)
+        assert len(result["narrative"]) > 20
+
+    def test_recommendations_populated(self, monkeypatch):
+        monkeypatch.setattr(tools.rca_agent, "get_model",
+                            lambda api_key=None: make_mock_model(GOOD_SYNTHESIS_RESPONSE))
+        result = tools.rca_agent.run_rca_synthesis(SAMPLE_WHYS_RESULTS)
+        assert len(result["recommendations"]) >= 1
+
+    def test_item_count_sum(self, monkeypatch):
+        monkeypatch.setattr(tools.rca_agent, "get_model",
+                            lambda api_key=None: make_synth_model(GOOD_SYNTHESIS_RESPONSE))
+        result = tools.rca_agent.run_rca_synthesis(SAMPLE_WHYS_RESULTS)
+        assert result["item_count"] == 9  # 4 + 5
+
+    def test_run_count_equals_whys_count(self, monkeypatch):
+        monkeypatch.setattr(tools.rca_agent, "get_model",
+                            lambda api_key=None: make_synth_model(GOOD_SYNTHESIS_RESPONSE))
+        result = tools.rca_agent.run_rca_synthesis(SAMPLE_WHYS_RESULTS)
+        assert result["run_count"] == 2
+
+    def test_errored_whys_skipped_in_synthesis(self, monkeypatch):
+        mixed = SAMPLE_WHYS_RESULTS + [
+            {"error": "LLM fail", "root_cause": "", "category": "plumbing", "item_count": 0}
+        ]
+        monkeypatch.setattr(tools.rca_agent, "get_model",
+                            lambda api_key=None: make_synth_model(GOOD_SYNTHESIS_RESPONSE))
+        result = tools.rca_agent.run_rca_synthesis(mixed)
+        assert "plumbing" not in result.get("synthesized_from", [])
+
+    def test_json_parse_error_returns_error(self, monkeypatch):
+        class BadModel:
+            class Msg:
+                content = "not json"
+            def invoke(self, messages):
+                return self.Msg()
+        monkeypatch.setattr(tools.rca_agent, "get_model", lambda api_key=None: BadModel())
+        result = tools.rca_agent.run_rca_synthesis(SAMPLE_WHYS_RESULTS)
+        assert result["error"] is not None
+
+    def test_llm_exception_returns_error(self, monkeypatch):
+        class CrashModel:
+            def invoke(self, messages):
+                raise RuntimeError("fail")
+        monkeypatch.setattr(tools.rca_agent, "get_model", lambda api_key=None: CrashModel())
+        result = tools.rca_agent.run_rca_synthesis(SAMPLE_WHYS_RESULTS)
+        assert result["error"] is not None
+
+    def test_category_is_none_for_synthesis(self, monkeypatch):
+        monkeypatch.setattr(tools.rca_agent, "get_model",
+                            lambda api_key=None: make_synth_model(GOOD_SYNTHESIS_RESPONSE))
+        result = tools.rca_agent.run_rca_synthesis(SAMPLE_WHYS_RESULTS)
+        assert result["category"] is None

@@ -48,7 +48,14 @@ _RCA_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
-# Category extraction for scoped RCA
+# 5 Whys keywords — drill into a specific cluster
+_WHYS_KEYWORDS = re.compile(
+    r'\b(5 whys|five whys|drill down|dig deeper|drill into|causal chain|'
+    r'why is this|why does|keep digging|go deeper|deeper on|whys on|whys for)\b',
+    re.IGNORECASE,
+)
+
+# Category extraction for scoped RCA / 5 Whys
 _CATEGORY_MAP = {
     "hvac":        "hvac",
     "plumbing":    "plumbing",
@@ -64,18 +71,50 @@ _CATEGORY_PAT = re.compile(
     re.IGNORECASE,
 )
 
+# Safety/fire/risk keywords that imply cross-category — resolved to highest-urgency category at runtime
+_SAFETY_PAT = re.compile(
+    r'\b(fire|safety|fire safety|fire risk|smoke|carbon monoxide|co risk|'
+    r'hazard|danger|risk|life.safety|critical risk)\b',
+    re.IGNORECASE,
+)
+
+
+def _highest_urgency_category_for_safety() -> str | None:
+    """Return the category with the highest max urgency*impact among open items.
+    Used when user specifies safety/fire intent without a specific category."""
+    try:
+        import sqlite3
+        from tools.db import get_conn
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT category, MAX(urgency * impact) as score "
+            "FROM registry WHERE status != 'closed' "
+            "GROUP BY category ORDER BY score DESC LIMIT 1"
+        ).fetchall()
+        return rows[0][0] if rows else None
+    except Exception:
+        return None
+
 
 def extract_rca_category(instruction: str) -> str | None:
-    """Return canonical category name if instruction scopes the RCA, else None."""
+    """Return canonical category name if instruction scopes the RCA/5 Whys, else None.
+
+    Handles:
+    - Explicit category names (hvac, electrical, plumbing, appliance, general)
+    - Safety/fire/risk keywords — resolved to highest-urgency open category
+    """
     m = _CATEGORY_PAT.search(instruction)
     if m:
         return _CATEGORY_MAP.get(m.group(1).lower())
+    # Safety intent — resolve to highest-urgency category
+    if _SAFETY_PAT.search(instruction):
+        return _highest_urgency_category_for_safety()
     return None
 
 AMBIGUOUS_INTENT_PROMPT = """You are a home management assistant command router.
 
 Given a user input, return ONLY a JSON object with:
-- "intent": one of "run", "add", "update", "close", "chart", or "rca"
+- "intent": one of "run", "add", "update", "close", "chart", "rca", or "whys"
 
 Definitions:
 - "run": trigger an agent analysis run (e.g. "weekly review", "check hvac", "what needs attention")
@@ -84,6 +123,7 @@ Definitions:
 - "close": close/remove a registry item
 - "chart": generate a chart or visualization from registry or run history data
 - "rca": perform a cross-item root cause analysis (e.g. "root cause", "what's driving these issues", "systemic analysis")
+- "whys": perform a 5 Whys causal chain drill-down on a specific cluster (e.g. "5 whys", "drill into", "dig deeper on", "causal chain")
 
 Return ONLY valid JSON. No explanation, no markdown, no preamble."""
 
@@ -99,8 +139,13 @@ def classify_input(instruction: str, api_key: str | None = None) -> str:
     has_reg_keyword  = bool(_REGISTRY_KEYWORDS.search(instruction))
     has_chart_kw     = bool(_CHART_KEYWORDS.search(instruction))
     has_rca_kw       = bool(_RCA_KEYWORDS.search(instruction))
+    has_whys_kw      = bool(_WHYS_KEYWORDS.search(instruction))
 
-    # Unambiguous: RCA keyword → rca intent (highest priority, before chart/run)
+    # Unambiguous: 5 Whys keyword → whys intent (highest priority)
+    if has_whys_kw and not has_item_id and not has_reg_keyword:
+        return "whys"
+
+    # Unambiguous: RCA keyword → rca intent (before chart/run)
     if has_rca_kw and not has_item_id and not has_reg_keyword:
         return "rca"
 
@@ -130,7 +175,7 @@ def classify_input(instruction: str, api_key: str | None = None) -> str:
         raw = response.content.strip().strip("```json").strip("```").strip()
         parsed = json.loads(raw)
         intent = parsed.get("intent", "run")
-        if intent in ("chart", "rca"):
+        if intent in ("chart", "rca", "whys"):
             return intent
         return "run" if intent == "run" else "registry"
     except Exception:

@@ -219,3 +219,127 @@ def run_rca(instruction: str, category: str | None = None, api_key=None) -> dict
             "item_count": len(registry), "run_count": len(history),
             "category": category,
         }
+
+
+# ---------------------------------------------------------------------------
+# Synthesis mode — aggregate multiple 5 Whys results into cross-category RCA
+# ---------------------------------------------------------------------------
+
+RCA_SYNTHESIS_PROMPT = """You are an expert root cause analysis facilitator synthesizing
+multiple 5 Whys analyses across different home maintenance categories into a unified
+cross-category root cause analysis.
+
+You will receive a list of completed 5 Whys results, each covering a different category.
+Each result includes: category, problem statement, causal chain, root cause, and
+corrective action.
+
+Your task:
+1. Identify systemic patterns that appear across multiple categories
+2. Cluster the per-category root causes into cross-cutting themes
+3. Write a unified narrative connecting the patterns
+4. Produce prioritized cross-category recommendations
+
+Return ONLY a JSON object with this exact structure:
+
+{
+  "confidence": <float 0.0-1.0>,
+  "confidence_rationale": "<one sentence>",
+  "pattern_clusters": [
+    {
+      "cluster_id": "<short slug>",
+      "label": "<human-readable cluster name>",
+      "risk_factor": "<shared systemic risk factor>",
+      "item_ids": [],
+      "categories": ["<cat1>", "<cat2>"],
+      "severity": "critical" | "high" | "moderate" | "low",
+      "confidence": <float 0.0-1.0>
+    }
+  ],
+  "narrative": "<2-3 paragraph synthesis. Connect root causes across categories. Identify the meta-pattern driving issues across the home. Be specific.>",
+  "recommendations": [
+    {
+      "priority": 1,
+      "action": "<cross-category corrective action>",
+      "rationale": "<why this addresses the systemic root cause>",
+      "addresses_clusters": ["<cluster_id>"],
+      "urgency": "immediate" | "short_term" | "long_term"
+    }
+  ]
+}
+
+Rules:
+- Minimum 2, maximum 5 clusters
+- Clusters must represent CROSS-CATEGORY patterns, not just re-state individual category findings
+- Minimum 3, maximum 5 recommendations, ordered by priority
+- Return ONLY valid JSON. No explanation, no markdown, no preamble."""
+
+
+def run_rca_synthesis(whys_results: list[dict], api_key=None) -> dict:
+    """
+    Synthesize multiple 5 Whys results into a cross-category RCA.
+
+    Args:
+        whys_results: list of dicts from run_whys() — one per category
+        api_key: optional Groq API key
+
+    Returns same shape as run_rca() for drop-in compatibility with the UI.
+    """
+    _empty = {
+        "clusters": [], "narrative": "", "recommendations": [],
+        "confidence": 0.0, "confidence_rationale": "",
+        "error": None, "item_count": 0, "run_count": 0,
+        "category": None, "synthesized_from": [],
+    }
+
+    valid = [r for r in whys_results if not r.get("error") and r.get("root_cause")]
+    if not valid:
+        return {**_empty, "error": "No valid 5 Whys results to synthesize."}
+
+    # Summarize each whys result for the prompt
+    summaries = [
+        {
+            "category":          r["category"],
+            "problem_statement": r.get("problem_statement", ""),
+            "root_cause":        r["root_cause"],
+            "corrective_action": r.get("corrective_action", ""),
+            "confidence":        r.get("confidence", 0.0),
+            "item_count":        r.get("item_count", 0),
+        }
+        for r in valid
+    ]
+
+    user_msg = (
+        f"5 Whys results to synthesize ({len(summaries)} categories):\n"
+        f"{json.dumps(summaries, indent=2)}"
+    )
+
+    try:
+        model = get_model(api_key=api_key)
+        response = model.invoke([
+            {"role": "system", "content": RCA_SYNTHESIS_PROMPT},
+            {"role": "user",   "content": user_msg},
+        ])
+        raw = response.content.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        result = json.loads(raw)
+
+        total_items = sum(r.get("item_count", 0) for r in valid)
+
+        return {
+            "clusters":             result.get("pattern_clusters", []),
+            "narrative":            result.get("narrative", ""),
+            "recommendations":      result.get("recommendations", []),
+            "confidence":           float(result.get("confidence", 0.0)),
+            "confidence_rationale": result.get("confidence_rationale", ""),
+            "error":                None,
+            "item_count":           total_items,
+            "run_count":            len(valid),
+            "category":             None,
+            "synthesized_from":     [r["category"] for r in valid],
+        }
+
+    except json.JSONDecodeError as e:
+        return {**_empty, "error": f"RCA synthesis parse error: {e}",
+                "synthesized_from": [r["category"] for r in valid]}
+    except Exception as e:
+        return {**_empty, "error": f"RCA synthesis failed: {e}",
+                "synthesized_from": [r["category"] for r in valid]}

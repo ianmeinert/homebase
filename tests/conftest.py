@@ -140,5 +140,8 @@ def mock_llm(monkeypatch):
     import tools.rca_agent
     monkeypatch.setattr(tools.rca_agent, "get_conn", make_conn)
     monkeypatch.setattr(tools.rca_agent, "get_model", lambda api_key=None: mock_model)
+    import tools.whys_agent
+    monkeypatch.setattr(tools.whys_agent, "get_conn", make_conn)
+    monkeypatch.setattr(tools.whys_agent, "get_model", lambda api_key=None: mock_model)
 
     yield mock_model

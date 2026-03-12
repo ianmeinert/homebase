@@ -321,8 +321,9 @@ def init_state():
         "pending_input": "",       # set by prompt library, consumed by command field
         "api_key": os.environ.get("GROQ_API_KEY", ""),
         "chart_result":  None,        # {fig, error, instruction} or None
-        "rca_result":    None,        # {clusters, narrative, recommendations, confidence, ...} or None
-        "rca_category":  None,        # category scope for current RCA (None = all)
+        "rca_result":    None,        # synthesis RCA result from multiple 5 Whys
+        "rca_category":  None,        # unused — kept for backward compat
+        "whys_results":  [],          # list of 5 Whys results, one per category run
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -517,7 +518,7 @@ with main_tabs[0]:
     from tools.update_agent import classify_input, execute_command as _execute_command, extract_rca_category
     from tools.registry_tools import get_registry as _get_registry
     from tools.chart_agent import generate_chart as _generate_chart
-    from tools.rca_agent import run_rca as _run_rca
+    from tools.rca_agent import run_rca as _run_rca, run_rca_synthesis as _run_rca_synthesis
 
     _cmd_disabled = st.session_state.phase in ("running", "hitl_wait")
     _no_key       = not st.session_state.api_key.strip()
@@ -567,15 +568,34 @@ with main_tabs[0]:
             st.rerun()
 
         elif _intent_class == "rca":
-            # Cross-item root cause analysis — extract category from NL if present
-            _rca_cat = extract_rca_category(_input)
-            if _rca_cat:
-                st.session_state.rca_category = _rca_cat
-            _scope = st.session_state.rca_category
-            _scope_label = f"'{_scope}' category" if _scope else "all categories"
-            with st.spinner(f"RCA agent analyzing patterns across {_scope_label}..."):
-                _rca = _run_rca(_input, category=_scope, api_key=_api_key)
+            # RCA synthesis — use existing whys_results if available, else run direct RCA
+            _valid_whys = [r for r in st.session_state.whys_results if not r.get("error")]
+            if _valid_whys:
+                with st.spinner(f"RCA synthesizing across {len(_valid_whys)} categories..."):
+                    _rca = _run_rca_synthesis(_valid_whys, api_key=_api_key)
+            else:
+                with st.spinner("RCA agent analyzing patterns..."):
+                    _rca = _run_rca(_input, category=None, api_key=_api_key)
             st.session_state.rca_result = _rca
+            st.rerun()
+
+        elif _intent_class == "whys":
+            from tools.whys_agent import run_whys
+            # Extract category from instruction — defaults to highest-severity if not specified
+            _whys_cat = extract_rca_category(_input) or None
+            _cat_label = f"'{_whys_cat}'" if _whys_cat else "highest-severity category"
+            with st.spinner(f"5 Whys agent analyzing {_cat_label}..."):
+                _whys = run_whys(_input, category=_whys_cat, api_key=_api_key)
+            # Append to whys_results, replacing any prior result for the same category
+            _existing = [r for r in st.session_state.whys_results
+                         if r.get("category") != _whys.get("category")]
+            st.session_state.whys_results = _existing + [_whys]
+            # Auto-trigger RCA synthesis when 2+ valid whys results exist
+            _valid_whys = [r for r in st.session_state.whys_results if not r.get("error")]
+            if len(_valid_whys) >= 2:
+                with st.spinner(f"RCA synthesizing across {len(_valid_whys)} categories..."):
+                    _rca_synth = _run_rca_synthesis(_valid_whys, api_key=_api_key)
+                st.session_state.rca_result = _rca_synth
             st.rerun()
 
         else:
@@ -626,25 +646,14 @@ with main_tabs[0]:
         _rca_cat = st.session_state.get("rca_category")
 
         # Header row
-        _rca_h, _rca_sel, _rca_clear = st.columns([3, 2, 1])
+        _rca_h, _rca_clear = st.columns([5, 1])
         with _rca_h:
-            _scope_title = f"— {_rca_cat.upper()}" if _rca_cat else "— ALL CATEGORIES"
-            st.markdown(f"### Root Cause Analysis {_scope_title}")
-        with _rca_sel:
-            _cat_options = ["All Categories", "hvac", "plumbing", "electrical", "appliance", "general"]
-            _sel_idx = _cat_options.index(_rca_cat) if _rca_cat in _cat_options else 0
-            _new_cat_sel = st.selectbox(
-                "Scope", _cat_options, index=_sel_idx, key="rca_cat_selector",
-                label_visibility="collapsed"
-            )
-            _new_cat = None if _new_cat_sel == "All Categories" else _new_cat_sel
-            if _new_cat != _rca_cat:
-                st.session_state.rca_category = _new_cat
-                _scope_label2 = f"'{_new_cat}' category" if _new_cat else "all categories"
-                with st.spinner(f"RCA agent re-analyzing {_scope_label2}..."):
-                    _rca_rerun = _run_rca("root cause analysis", category=_new_cat, api_key=st.session_state.api_key.strip() or None)
-                st.session_state.rca_result = _rca_rerun
-                st.rerun()
+            _synth_from = _rca.get("synthesized_from", [])
+            if _synth_from:
+                _synth_label = "  ·  ".join(c.upper() for c in _synth_from)
+                st.markdown(f"### Root Cause Analysis  —  synthesized from {_synth_label}")
+            else:
+                st.markdown("### Root Cause Analysis")
         with _rca_clear:
             if st.button("✕  Clear", key="clear_rca"):
                 st.session_state.rca_result = None
@@ -674,10 +683,12 @@ with main_tabs[0]:
             )
 
             # Meta line
+            _synth_cats = _rca.get("synthesized_from", [])
+            _meta_source = f"synthesized from {len(_synth_cats)} 5 Whys analyses" if _synth_cats else f"{_rca.get('run_count',0)} historical runs"
             st.markdown(
                 f"<div style='font-size:11px;color:#666;font-family:IBM Plex Mono,monospace;"
                 f"margin-bottom:16px;'>Analyzed {_rca.get('item_count',0)} items · "
-                f"{_rca.get('run_count',0)} historical runs · "
+                f"{_meta_source} · "
                 f"{len(_rca.get('clusters',[]))} pattern clusters identified</div>",
                 unsafe_allow_html=True,
             )
@@ -762,6 +773,119 @@ with main_tabs[0]:
                         f"</div></div></div>",
                         unsafe_allow_html=True,
                     )
+
+        st.divider()
+
+    # -- 5 Whys panels (one per category run, stacked) ----------------------------
+    if st.session_state.whys_results:
+        _whys_header, _whys_clear = st.columns([5, 1])
+        with _whys_header:
+            _cats_done = [r.get("category","").upper() for r in st.session_state.whys_results]
+            st.markdown(f"### 5 Whys  —  {'  ·  '.join(_cats_done)}")
+        with _whys_clear:
+            if st.button("✕  Clear All", key="clear_whys"):
+                st.session_state.whys_results = []
+                st.session_state.rca_result = None
+                st.rerun()
+
+        for _wi, _whys in enumerate(st.session_state.whys_results):
+            _cat_title = _whys.get("category", "").upper()
+            _item_ct   = _whys.get("item_count", 0)
+            st.markdown(
+                f"<div style='font-size:13px;font-weight:700;color:#4a9eff;"
+                f"font-family:IBM Plex Mono,monospace;margin:14px 0 6px;'>"
+                f"{_cat_title}  <span style='color:#555;font-weight:400;font-size:11px;'>"
+                f"({_item_ct} items analyzed)</span></div>",
+                unsafe_allow_html=True,
+            )
+
+            if _whys.get("error"):
+                st.error(_whys["error"])
+                continue
+
+            # Problem statement
+            _prob = _whys.get("problem_statement", "")
+            if _prob:
+                st.markdown(
+                    f"<div style='font-size:12px;color:#aaa;font-style:italic;"
+                    f"margin-bottom:10px;'>{_prob}</div>",
+                    unsafe_allow_html=True,
+                )
+
+            # Confidence badge
+            _wconf     = _whys.get("confidence", 0.0)
+            _wconf_pct = int(_wconf * 100)
+            _wconf_color = (
+                "#ff6b6b" if _wconf < 0.5 else
+                "#f5a623" if _wconf < 0.7 else
+                "#7ecb35" if _wconf < 0.9 else
+                "#00d4aa"
+            )
+            _wconf_rationale = _whys.get('confidence_rationale', '')
+            st.markdown(
+                f"<div style='margin-bottom:12px;'>"
+                f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:3px;'>"
+                f"<span style='font-size:11px;color:#555;font-family:IBM Plex Mono,monospace;'>CHAIN CONFIDENCE</span>"
+                f"<span style='font-size:16px;font-weight:700;color:{_wconf_color};'>{_wconf_pct}%</span>"
+                f"</div>"
+                f"<div style='font-size:11px;color:#666;font-style:italic;line-height:1.4;'>{_wconf_rationale}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Causal chain
+            _chain = _whys.get("causal_chain", [])
+            if _chain:
+                for _step in _chain:
+                    _lvl      = _step.get("level", 0)
+                    _why      = _step.get("why", "")
+                    _because  = _step.get("because", "")
+                    _is_root  = _lvl == 5
+                    _indent   = (_lvl - 1) * 16
+                    _bc       = "#ff6b6b" if _is_root else "#30363d"
+                    _lc       = "#ff6b6b" if _is_root else "#4a9eff"
+                    st.markdown(
+                        f"<div style='margin-left:{_indent}px;margin-bottom:5px;'>"
+                        f"<div style='background:#161b22;border:1px solid {_bc};border-radius:6px;padding:8px 12px;'>"
+                        f"<div style='font-size:9px;color:{_lc};font-family:IBM Plex Mono,monospace;"
+                        f"text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;'>"
+                        f"{'ROOT CAUSE' if _is_root else f'WHY {_lvl}'}</div>"
+                        f"<div style='font-size:11px;color:#666;margin-bottom:4px;font-style:italic;'>{_why}</div>"
+                        f"<div style='font-size:12px;color:#e6edf3;'>"
+                        f"<span style='color:{_lc};margin-right:5px;'>→</span>{_because}</div>"
+                        f"</div></div>",
+                        unsafe_allow_html=True,
+                    )
+
+            # Root cause + corrective action side by side
+            _rc_col, _ca_col = st.columns(2)
+            with _rc_col:
+                _root_cause = _whys.get("root_cause", "")
+                if _root_cause:
+                    st.markdown(
+                        f"<div style='background:#1a0a0a;border:2px solid #ff6b6b;"
+                        f"border-radius:8px;padding:12px 16px;margin-top:10px;'>"
+                        f"<div style='font-size:10px;color:#ff6b6b;font-family:IBM Plex Mono,monospace;"
+                        f"text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;'>Root Cause</div>"
+                        f"<div style='font-size:12px;color:#ffa0a0;font-weight:600;line-height:1.5;'>"
+                        f"{_root_cause}</div></div>",
+                        unsafe_allow_html=True,
+                    )
+            with _ca_col:
+                _corrective = _whys.get("corrective_action", "")
+                if _corrective:
+                    st.markdown(
+                        f"<div style='background:#0a1a0a;border:2px solid #7ecb35;"
+                        f"border-radius:8px;padding:12px 16px;margin-top:10px;'>"
+                        f"<div style='font-size:10px;color:#7ecb35;font-family:IBM Plex Mono,monospace;"
+                        f"text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;'>Corrective Action</div>"
+                        f"<div style='font-size:12px;color:#a8e06e;line-height:1.6;'>{_corrective}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+
+            if _wi < len(st.session_state.whys_results) - 1:
+                st.markdown("<hr style='border-color:#21262d;margin:16px 0;'>", unsafe_allow_html=True)
 
         st.divider()
 

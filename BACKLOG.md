@@ -13,23 +13,6 @@ _Nothing currently in active development._
 
 ## Next
 
-### 5 Whys Follow-on Agent
-
-**Provider:** Groq (Llama 3.3 70B)
-**Effort:** Low
-
-After an RCA run, user can select a specific pattern cluster and trigger an interactive
-5 Whys drill-down. Agent asks a sequence of causal questions, builds a causal chain,
-and outputs a structured root cause summary with corrective action recommendations.
-
-**Home analog:** "Why is HVAC degrading repeatedly?" → deferred filter changes → budget
-deprioritization → no scheduled maintenance cadence → no reminder system → root cause:
-no preventive maintenance workflow.
-
-**Enterprise analog:** Structured RCA interview workflow for recurring issue categories.
-
----
-
 ### Predictive Quadrant Preview
 
 **Provider:** Groq (Llama 3.3 70B)
@@ -192,3 +175,4 @@ behind each node.
 | v1.8.0 | Unified NL command field, hybrid intent router |
 | v1.9.0 | AI chart generation agent (two-tier), unified command field chart routing |
 | v1.10.0 | Cross-item RCA agent, category-scoped RCA, `updated_at` timestamp schema, registry seed expanded to 30 items, run history seed script |
+| v1.11.0 | 5 Whys causal chain agent (category-based), RCA synthesis mode, safety keyword category resolution, stacked whys UI panels, sample documents PDF |
