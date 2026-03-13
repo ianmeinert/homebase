@@ -1,0 +1,78 @@
+site_name: HOMEBASE
+site_description: Multi-Agent Home Management System — LangGraph + Groq
+site_url: https://ianmeinert.github.io/homebase/
+repo_url: https://github.com/ianmeinert/homebase
+repo_name: ianmeinert/homebase
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Setup: setup.md
+  - Running: running.md
+  - Architecture:
+      - Overview: architecture/index.md
+      - Multi-Provider Strategy: architecture/providers.md
+      - Data Model: architecture/data-model.md
+  - Agents:
+      - Overview: agents/index.md
+      - Core Agents: agents/core.md
+      - Analytics Agents: agents/analytics.md
+      - Analysis Agents: agents/rca.md
+      - Chart Agent: agents/chart.md
+  - Reference:
+      - Enterprise Bridge: reference/enterprise.md
+      - Technical Notes: reference/notes.md
+  - Changelog: changelog.md
+  - Backlog: backlog.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ianmeinert/homebase
