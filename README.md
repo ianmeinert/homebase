@@ -1,6 +1,6 @@
 # HOMEBASE
 
-### Multi-Agent Home Management System — LangGraph + Groq
+### Multi-Agent Home Management System — LangGraph + Groq + Gemini
 
 ### v1.16.0 | [📖 Documentation](https://ianmeinert.github.io/homebase/)
 
