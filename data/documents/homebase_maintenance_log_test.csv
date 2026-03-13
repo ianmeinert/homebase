@@ -1,0 +1,50 @@
+date,category,item_id,vendor,description,cost,invoice_number,warranty_covered
+2023-01-08,hvac,HV-001,AirPro Services,Annual HVAC inspection and filter replacement,185,INV-2301-001,false
+2023-01-15,plumbing,PLB-001,Roto-Rooter,Kitchen drain snaking,95,INV-2301-002,false
+2023-02-03,electrical,EL-001,Apex Electric,GFCI outlet replacement (bathroom),220,INV-2302-001,false
+2023-02-18,appliance,APP-001,Sears Home Services,Dishwasher diagnostic and seal replacement,310,INV-2302-002,true
+2023-03-05,general,GEN-001,HomeDepot,Weatherstripping replacement (front and back doors),62,INV-2303-001,false
+2023-03-22,hvac,HV-001,AirPro Services,Refrigerant recharge (freon low),420,INV-2303-002,false
+2023-04-10,plumbing,PLB-002,Roto-Rooter,Water heater anode rod replacement,145,INV-2304-001,false
+2023-04-28,general,GEN-002,HomeDepot,Gutter cleaning and minor repair,175,INV-2304-002,false
+2023-05-14,electrical,EL-002,Apex Electric,Ceiling fan installation (master bedroom),310,INV-2305-001,false
+2023-05-30,appliance,APP-002,LG Authorized,Refrigerator ice maker repair,275,INV-2305-002,true
+2023-06-08,hvac,HV-001,AirPro Services,Pre-summer AC tune-up,165,INV-2306-001,false
+2023-06-25,plumbing,PLB-001,Roto-Rooter,Outdoor spigot replacement (cracked),190,INV-2306-002,false
+2023-07-12,general,GEN-003,HomeDepot,Deck board replacement (3 boards rotted),340,INV-2307-001,false
+2023-07-29,hvac,HV-001,AirPro Services,AC capacitor replacement (unit not cooling),385,INV-2307-002,false
+2023-08-15,electrical,EL-001,Apex Electric,Panel inspection and breaker tightening,195,INV-2308-001,false
+2023-08-31,appliance,APP-001,Sears Home Services,Dishwasher pump replacement,445,INV-2308-002,true
+2023-09-10,plumbing,PLB-003,Roto-Rooter,Toilet flapper and fill valve replacement,115,INV-2309-001,false
+2023-09-27,general,GEN-001,HomeDepot,Caulking (tub surround and exterior windows),48,INV-2309-002,false
+2023-10-14,hvac,HV-001,AirPro Services,Fall furnace inspection and tune-up,175,INV-2310-001,false
+2023-10-30,electrical,EL-003,Apex Electric,Smoke detector replacement (4 units),320,INV-2310-002,false
+2023-11-08,plumbing,PLB-001,Roto-Rooter,Water heater flush and inspection,130,INV-2311-001,false
+2023-11-22,general,GEN-004,HomeDepot,Attic insulation top-off (blown in),890,INV-2311-002,false
+2023-12-05,hvac,HV-001,AirPro Services,Emergency furnace repair (heat exchanger crack),1250,INV-2312-001,false
+2023-12-19,appliance,APP-003,Samsung Authorized,Dryer heating element replacement,320,INV-2312-002,true
+2024-01-10,hvac,HV-001,AirPro Services,Post-repair inspection and filter,165,INV-2401-001,false
+2024-01-24,plumbing,PLB-002,Roto-Rooter,Pipe insulation (garage — freeze prevention),210,INV-2401-002,false
+2024-02-07,electrical,EL-001,Apex Electric,EV charger rough-in (garage),1850,INV-2402-001,false
+2024-02-21,general,GEN-002,HomeDepot,Fence post repair (2 posts heaved),295,INV-2402-002,false
+2024-03-06,hvac,HV-002,CoolBreeze HVAC,Second opinion inspection (new vendor),225,INV-2403-001,false
+2024-03-20,appliance,APP-001,Sears Home Services,Dishwasher control board replacement,685,INV-2403-002,true
+2024-04-04,plumbing,PLB-001,Roto-Rooter,Main line camera inspection,350,INV-2404-001,false
+2024-04-18,general,GEN-005,HomeDepot,Driveway crack sealing,120,INV-2404-002,false
+2024-05-02,hvac,HV-001,AirPro Services,Pre-summer AC tune-up,175,INV-2405-001,false
+2024-05-16,electrical,EL-002,Apex Electric,Outdoor lighting installation (3 fixtures),580,INV-2405-002,false
+2024-05-30,appliance,APP-004,Whirlpool Authorized,Washer bearing replacement,510,INV-2405-003,true
+2024-06-13,hvac,HV-001,AirPro Services,Refrigerant recharge (freon low again),445,INV-2406-001,false
+2024-06-27,plumbing,PLB-003,Roto-Rooter,Bathroom faucet replacement (master),265,INV-2406-002,false
+2024-07-11,general,GEN-003,HomeDepot,Deck staining and sealing,480,INV-2407-001,false
+2024-07-25,hvac,HV-001,AirPro Services,Blower motor replacement,920,INV-2407-002,false
+2024-08-08,electrical,EL-001,Apex Electric,EV charger final install and inspection,640,INV-2408-001,false
+2024-08-22,appliance,APP-001,Sears Home Services,Dishwasher — recommend replacement (4th repair),185,INV-2408-002,true
+2024-09-05,plumbing,PLB-001,Roto-Rooter,Main line root intrusion clearing,595,INV-2409-001,false
+2024-09-19,general,GEN-001,HomeDepot,Weatherstripping replacement (garage door),88,INV-2409-002,false
+2024-10-03,hvac,HV-001,AirPro Services,Fall furnace inspection,175,INV-2410-001,false
+2024-10-17,electrical,EL-003,Apex Electric,Panel upgrade quote and inspection,275,INV-2410-002,false
+2024-11-01,plumbing,PLB-002,Roto-Rooter,Water heater replacement (10 years old),1650,INV-2411-001,false
+2024-11-15,general,GEN-006,HomeDepot,Window caulking and weatherproofing (full house),310,INV-2411-002,false
+2024-12-05,hvac,HV-001,AirPro Services,Emergency no-heat call (ignitor replacement),485,INV-2412-001,false
+2024-12-19,appliance,APP-005,LG Authorized,Refrigerator compressor replacement,1100,INV-2412-002,false

@@ -4,7 +4,19 @@ All notable changes to HOMEBASE are documented here.
 
 ---
 
-## v1.14.0
+## v1.15.0
+
+- **Spreadsheet Analytics Agent** (`tools/analytics_agent.py`) — Gemini 2.5 Flash-Lite ingests CSV, XLSX, and ODS files (≤500 rows); pure-pandas profiling pass extracts column types, stats, value counts, and date ranges without sending raw data to the LLM; second Gemini call produces 3–8 ranked findings with normalized trend, severity, and confidence (clamped 0.0–1.0)
+- **Registry correlation** — third Gemini call cross-references analytics findings against the live registry; validates item IDs before any write; never raises on empty or malformed registry
+- **HITL review panel (analytics)** — per-item approval flow; proposed note pre-filled and editable; `update_item()` only called on explicit approve; no "approve all" shortcut; appends `[Analytics]` prefix to distinguish AI-proposed notes
+- **`📊 Spreadsheet Analytics` expander** — wired into Dashboard tab below Document Intake; `st.file_uploader` placed outside any form to avoid lifecycle race conditions; 5-row preview + profile strip on upload; truncation warning when row count exceeds cap
+- **Severity-coded metric cards** — 3-column layout; critical (red), warning (amber), info (green) color coding; trend arrows (↑↓→?); confidence bar per finding; narrative block below cards
+- **Chart generation from uploaded data** — analytics DataFrame available to `chart_agent.py` via both the `📈 Chart this data` button (Option A, expander) and the unified NL command field (Option B); column name matching routes analytics data automatically when column names appear in the instruction
+- **Complex chart token fix** — raw row limit in `_build_complex` reduced from 200 → 50; truncation guard attempts partial JSON recovery before failing; `COMPLEX_CHART_PROMPT` updated to cap x/y arrays at 20 points and enforce compact JSON output
+- **Gemini model update** — both `intake_agent.py` and `analytics_agent.py` updated to `gemini-2.5-flash-lite`; prior strings (`gemini-3-flash-preview`, `gemini-2.0-flash`) removed
+- **Streamlit deprecation fix** — all `use_container_width=True` replaced with `width="stretch"` across `app.py` (8 instances; deprecated after 2025-12-31)
+- **Bug fixes (folded from post-v1.14.0)** — intent router: whys/rca keywords take priority over item ID presence; `run_whys()` accepts `item_id` for item-scoped analysis; `item_ids` normalized to `list[str]` in both RCA execution paths; defensive `str()` cast at cluster ID join in `app.py`
+- **55 new tests** (`tests/test_analytics_agent.py`) — covers `load_file` dispatch, `profile_dataframe` (truncation, type detection, stats, nulls), `analyze_spreadsheet` (mock LLM, normalization, error handling), `correlate_findings` (empty registry guard, invalid ID filter, result merging); total suite: 485 passing
 
 - **Document Intake Agent** (`tools/intake_agent.py`) — Gemini 2.0 Flash (multimodal) reads uploaded warranty documents, contractor invoices, work receipts, and inspection reports; extracts structured fields (date, contractor, cost, scope, item reference, notes); matches document to the closest registry item; proposes targeted field updates
 - **HITL review panel** — proposed updates surface in a structured review panel before any registry write occurs; user can select/override the target registry item, edit the description, adjust status, and approve or discard; `update_item()` is only called after explicit approval
@@ -14,8 +26,6 @@ All notable changes to HOMEBASE are documented here.
 - **Google API key integration** — separate sidebar input (`AIza...`) for the Gemini key; displayed as muted hint when unset; does not block Groq-backed features
 - **`⬡ Document Intake` expander** — wired into Dashboard tab alongside Predictive Quadrant Preview and Completeness Scorer; `st.file_uploader` accepts PDF, PNG, JPG, JPEG, WEBP; form wrapper prevents lifecycle race conditions
 - **52 new tests** (`tests/test_intake_agent.py`) — covers input guards, all document types, confidence normalization, doc type normalization, field sanitization, item ID validation, markdown fence stripping, error handling, API key routing, and helper functions
-
-
 
 - **Completeness Scorer** (`tools/completeness_agent.py`) — Groq/Llama 3.3 70B scores a free-text issue description against a per-category rubric (5 categories × 5 fields each); returns completeness score (0.0–1.0), list of missing/vague fields, and targeted follow-up questions
 - **Per-category rubrics** — HVAC, plumbing, electrical, appliance, and general each define 5 high-value fields (symptom, location, duration, severity signals, category-specific context); rubric drives both the system prompt and the scoring logic

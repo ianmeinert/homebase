@@ -2,6 +2,7 @@
 tests/test_chart_agent.py — Tests for AI chart generation agent.
 """
 import json
+import pandas as pd
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -295,3 +296,166 @@ def test_chart_keyword_doesnt_override_registry_op():
     # "add" + no chart keyword — should stay registry
     result = classify_input("add new hvac filter item")
     assert result == "registry"
+
+# ---------------------------------------------------------------------------
+# _load_analytics_data
+# ---------------------------------------------------------------------------
+
+def test_load_analytics_data_basic():
+    from tools.chart_agent import _load_analytics_data
+    df = pd.DataFrame({"cost": [100.0, 200.0], "vendor": ["A", "B"]})
+    rows = _load_analytics_data(df)
+    assert len(rows) == 2
+    assert rows[0]["vendor"] == "A"
+
+def test_load_analytics_data_caps_at_200():
+    from tools.chart_agent import _load_analytics_data
+    df = pd.DataFrame({"x": range(300)})
+    rows = _load_analytics_data(df)
+    assert len(rows) == 200
+
+def test_load_analytics_data_empty_df_returns_empty():
+    from tools.chart_agent import _load_analytics_data
+    rows = _load_analytics_data(pd.DataFrame())
+    assert rows == []
+
+def test_load_analytics_data_none_returns_empty():
+    from tools.chart_agent import _load_analytics_data
+    rows = _load_analytics_data(None)
+    assert rows == []
+
+def test_load_analytics_data_values_are_strings():
+    from tools.chart_agent import _load_analytics_data
+    df = pd.DataFrame({"cost": [150.0], "count": [3]})
+    rows = _load_analytics_data(df)
+    # All values coerced to str for JSON safety
+    assert isinstance(rows[0]["cost"], str)
+
+
+# ---------------------------------------------------------------------------
+# _pick_datasets with analytics_df
+# ---------------------------------------------------------------------------
+
+def test_pick_datasets_analytics_keyword_loads_analytics():
+    from tools.chart_agent import _pick_datasets
+    df = pd.DataFrame({"cost": [100], "vendor": ["A"]})
+    with patch("tools.chart_agent._load_analytics_data", return_value=[{"cost": "100"}]):
+        data = _pick_datasets("chart from my data", analytics_df=df)
+    assert "analytics" in data
+
+def test_pick_datasets_uploaded_keyword_loads_analytics():
+    from tools.chart_agent import _pick_datasets
+    df = pd.DataFrame({"cost": [100]})
+    with patch("tools.chart_agent._load_analytics_data", return_value=[{"cost": "100"}]):
+        data = _pick_datasets("bar chart of uploaded spreadsheet", analytics_df=df)
+    assert "analytics" in data
+
+def test_pick_datasets_no_analytics_df_ignores_analytics_keywords():
+    from tools.chart_agent import _pick_datasets
+    with patch("tools.chart_agent._load_registry", return_value=[]), \
+         patch("tools.chart_agent._load_run_history", return_value=[]):
+        data = _pick_datasets("chart from my data", analytics_df=None)
+    assert "analytics" not in data
+
+def test_pick_datasets_analytics_with_registry_keyword_loads_both():
+    from tools.chart_agent import _pick_datasets
+    df = pd.DataFrame({"cost": [100]})
+    with patch("tools.chart_agent._load_analytics_data", return_value=[{"cost": "100"}]), \
+         patch("tools.chart_agent._load_registry", return_value=[{"id": "HV-001"}]):
+        data = _pick_datasets("chart from my data and registry", analytics_df=df)
+    assert "analytics" in data
+    assert "registry" in data
+
+def test_pick_datasets_col_name_match_loads_analytics():
+    from tools.chart_agent import _pick_datasets
+    df = pd.DataFrame({"vendor": ["A"], "cost": [100]})
+    with patch("tools.chart_agent._load_analytics_data", return_value=[{"vendor": "A"}]):
+        data = _pick_datasets("bar chart of vendor distribution", analytics_df=df)
+    assert "analytics" in data
+
+
+# ---------------------------------------------------------------------------
+# generate_chart with analytics_df
+# ---------------------------------------------------------------------------
+
+def test_generate_chart_passes_analytics_df_to_pick_datasets():
+    from tools.chart_agent import generate_chart
+    df = pd.DataFrame({"cost": [100.0, 200.0], "vendor": ["A", "B"]})
+
+    mock_model = _mock_model(json.dumps({"complexity": "simple"}))
+    mock_spec_model = _mock_model(json.dumps({
+        "chart_type": "bar", "title": "Cost by Vendor",
+        "data_source": "analytics", "x": "vendor", "y": "cost",
+        "color": None, "filters": {}, "aggregation": "none"
+    }))
+
+    call_count = [0]
+    def side_effect(messages):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return MagicMock(content=json.dumps({"complexity": "simple"}))
+        return MagicMock(content=json.dumps({
+            "chart_type": "bar", "title": "Test",
+            "data_source": "analytics", "x": "vendor", "y": "cost",
+            "color": None, "filters": {}, "aggregation": "none"
+        }))
+
+    mock_m = MagicMock()
+    mock_m.invoke.side_effect = side_effect
+
+    with patch("tools.chart_agent.get_model", return_value=mock_m), \
+         patch("tools.chart_agent._pick_datasets", wraps=lambda inst, analytics_df=None: {
+             "analytics": [{"vendor": "A", "cost": "100"}, {"vendor": "B", "cost": "200"}]
+         }) as mock_pick:
+        generate_chart("bar chart of vendor from my data", analytics_df=df)
+
+    mock_pick.assert_called_once()
+    _, kwargs = mock_pick.call_args
+    assert kwargs.get("analytics_df") is df or mock_pick.call_args[0][1] is df
+
+def test_generate_chart_no_analytics_df_works_normally():
+    from tools.chart_agent import generate_chart
+
+    call_count = [0]
+    def side_effect(messages):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return MagicMock(content=json.dumps({"complexity": "simple"}))
+        return MagicMock(content=json.dumps({
+            "chart_type": "bar", "title": "Test",
+            "data_source": "registry", "x": "category", "y": "urgency",
+            "color": None, "filters": {}, "aggregation": "mean"
+        }))
+
+    mock_m = MagicMock()
+    mock_m.invoke.side_effect = side_effect
+
+    with patch("tools.chart_agent.get_model", return_value=mock_m), \
+         patch("tools.chart_agent._pick_datasets", return_value={"registry": [
+             {"id": "HV-001", "category": "hvac", "urgency": 0.8, "impact": 0.6,
+              "days_since_update": 5, "status": "open", "title": "T", "updated_at": "2026-01-01"}
+         ]}):
+        fig, err = generate_chart("bar chart of urgency by category")
+    # Should not raise — plotly may be absent in test env, that's expected
+    assert err is None or "plotly" in str(err).lower() or fig is not None
+
+def test_generate_chart_analytics_col_context_appended():
+    """Column context from analytics_df is appended to instruction for LLM."""
+    from tools.chart_agent import generate_chart
+    df = pd.DataFrame({"cost": [100.0], "vendor": ["A"]})
+
+    captured_instructions = []
+    def mock_invoke(messages):
+        captured_instructions.append(messages[-1]["content"])
+        return MagicMock(content=json.dumps({"complexity": "simple"}))
+
+    mock_m = MagicMock()
+    mock_m.invoke.side_effect = mock_invoke
+
+    with patch("tools.chart_agent.get_model", return_value=mock_m), \
+         patch("tools.chart_agent._pick_datasets", return_value={}), \
+         patch("tools.chart_agent._build_from_spec", return_value=(None, "no data")):
+        generate_chart("chart cost by vendor", analytics_df=df)
+
+    # The complexity classification call should have column info appended
+    assert any("cost" in msg or "vendor" in msg for msg in captured_instructions)

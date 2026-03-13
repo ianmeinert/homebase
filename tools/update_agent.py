@@ -36,7 +36,9 @@ _REGISTRY_KEYWORDS = re.compile(
 # Chart keywords — user wants a visualization
 _CHART_KEYWORDS = re.compile(
     r'\b(chart|plot|graph|visualize|visualise|histogram|scatter|bar chart|pie chart|'
-    r'line chart|heatmap|show me a chart|show me a graph|trend|distribution)\b',
+    r'line chart|heatmap|show me a chart|show me a graph|trend|distribution|'
+    r'bar graph|pie graph|line graph|show me a (bar|line|pie|scatter)|'
+    r'from (my|the) (data|file|spreadsheet|csv|upload))\b',
     re.IGNORECASE,
 )
 

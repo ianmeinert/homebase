@@ -2,7 +2,7 @@
 
 ### Multi-Agent Home Management System — LangGraph + Groq
 
-### v1.14.0
+### v1.15.0
 
 A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
 orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
@@ -98,6 +98,7 @@ homebase/
 |   +-- quadrant_preview.py       # Predictive quadrant classification from free-text description
 |   +-- completeness_agent.py     # Completeness scorer + follow-up question generator (per-category rubrics)
 |   +-- intake_agent.py           # Document Intake Agent — Gemini multimodal, extracts structured data from docs
+|   +-- analytics_agent.py        # Spreadsheet Analytics Agent — Gemini 2.5 Flash-Lite, pandas profiling, HITL registry correlation
 |   +-- subagent_tools.py         # Rule-based tools (reference/fallback)
 |
 +-- scripts/
@@ -112,13 +113,16 @@ homebase/
     +-- test_subagents.py         # 19 tests — subagent nodes, category filtering
     +-- test_hitl.py              # 31 tests — HITL briefing, deferral logic, interrupt/resume
     +-- test_update_agent.py      # 16 tests — NL interpretation, field validation, apply_update
-    +-- test_chart_agent.py       # 25 tests — chart spec building, complex figure, intent routing
+    +-- test_chart_agent.py       # 38 tests — chart spec building, complex figure, intent routing, analytics data support
     +-- test_rca_agent.py         # 45 tests — RCA output structure, confidence scoring, category scoping
     +-- test_whys_agent.py        # 34 tests — causal chain structure, auto-category resolution, safety keyword routing
     +-- test_quadrant_preview.py  # 47 tests — input guards, confidence normalization, LLM output validation, error handling
     +-- test_completeness_agent.py # 60 tests — input guards, score normalization, rubrics, category inference, error handling
-    +-- test_intake_agent.py       # 52 tests — input guards, doc types, confidence, field sanitization, item ID validation, error handling
+    +-- test_intake_agent.py       # 53 tests — input guards, doc types, confidence, field sanitization, item ID validation, error handling
+    +-- test_analytics_agent.py    # 55 tests — load_file dispatch, pandas profiling, LLM normalization, registry correlation, error handling
 ```
+
+**Total: 485 passing tests** (15 pre-existing plotly import failures in test_chart_agent — plotly not installed in test container; works correctly in the application venv)
 
 ---
 
@@ -194,7 +198,8 @@ The UI provides:
 - **Cross-item RCA** — natural language root cause analysis across the full registry or scoped to a category; pattern clusters, systemic narrative, prioritized recommendations, and confidence scoring; category override via dropdown selector
 - **5 Whys agent** — category-based causal chain analysis; builds a 5-level structured causal chain from registry items; stacks per-category panels; auto-triggers RCA synthesis when 2+ categories are analyzed
 - **Predictive Quadrant Preview + Completeness Scorer** — collapsible expander below the command field; predicts quadrant (HU/HI, HU/LI, LU/HI, LU/LI) with confidence bar and rationale, then scores the description completeness against a per-category rubric and surfaces numbered follow-up questions for missing or underspecified fields
-- **Document Intake Agent** — upload a warranty, invoice, receipt, or inspection report (PDF/image); Gemini 2.0 Flash extracts structured fields and matches to the closest registry item; HITL review panel requires explicit approval before any registry write
+- **Document Intake Agent** — upload a warranty, invoice, receipt, or inspection report (PDF/image); Gemini 2.5 Flash-Lite extracts structured fields and matches to the closest registry item; HITL review panel requires explicit approval before any registry write
+- **Spreadsheet Analytics Agent** — upload CSV, XLSX, or ODS files; pandas profiling pass characterizes columns without sending raw data to the LLM; Gemini 2.5 Flash-Lite produces ranked findings with trend, severity, and confidence scoring; registry correlation cross-references findings against live items; per-item HITL required before any note is written; chart integration available via button or NL command
 - **Run history tab** — audit trail of all runs; expandable cards with quadrant breakdown, HITL decisions, deferred items, and full report
 
 ### CLI — Interactive HITL mode
@@ -306,6 +311,7 @@ for cost modeling, debugging, and enterprise justification.
 | Predictive quadrant preview | `quadrant_preview.py` — `predict_quadrant()` | 1 per preview (deduped) |
 | Completeness scoring | `completeness_agent.py` — `score_completeness()` | 1 per score (deduped) |
 | Document intake | `intake_agent.py` — `process_document()` | 1 per uploaded document |
+| Spreadsheet analytics | `analytics_agent.py` — `analyze_spreadsheet()` + `correlate_findings()` | 2 per uploaded file (profile → findings, then correlation) |
 
 **Typical LLM calls per full run:** 7–8 (1 orchestrator + 5 subagents + 1 synthesizer + 0–1 command routing)
 
@@ -329,7 +335,8 @@ medium-term extensions, and future research directions.
 
 Highlights:
 
-- **Document intake agent** ✓ — PDF/image → extract warranty, invoice, inspection data → HITL registry update (Gemini 2.0 Flash)
+- **Document intake agent** ✓ — PDF/image → extract warranty, invoice, inspection data → HITL registry update (Gemini 2.5 Flash-Lite)
+- **Spreadsheet analytics agent** ✓ — CSV/XLSX/ODS → pandas profiling → Gemini findings → HITL registry correlation (Gemini 2.5 Flash-Lite)
 - **Schema-aware metric discovery** — RAG-backed agent analyzes data schema for metric potential and gaps
 
 ---
@@ -365,7 +372,9 @@ See [CHANGELOG.md](CHANGELOG.md).
   exists, all registry reads/writes go through SQLite.
 - `days_since_update` is computed on read from the `updated_at` timestamp column.
   Every registry write (add, update, close) sets `updated_at = datetime('now')`.
-- The document intake agent (v1.14.0) introduced Gemini 2.0 Flash as a second
-  LLM provider for multimodal document understanding, alongside Groq/Llama for
-  real-time orchestration. This demonstrates a provider-agnostic multi-model
-  architecture — each model used where it performs best.
+- The document intake agent (v1.14.0) introduced Gemini as a second LLM provider
+  for multimodal document understanding, alongside Groq/Llama for real-time
+  orchestration. The spreadsheet analytics agent (v1.15.0) extended this pattern —
+  both Gemini-backed agents now use `gemini-2.5-flash-lite`. This demonstrates a
+  provider-agnostic multi-model architecture where each model is used where it
+  performs best.

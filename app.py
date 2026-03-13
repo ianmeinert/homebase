@@ -35,6 +35,12 @@ except ImportError:
 # -- LangSmith tracing (activates if LANGCHAIN_API_KEY is set in .env) --------
 from tools.tracing import init_tracing, is_tracing_enabled, get_project_name, get_run_metadata
 from tools.intake_agent import process_document as _process_document
+from tools.analytics_agent import (
+    load_file        as _load_analytics_file,
+    profile_dataframe as _profile_dataframe,
+    analyze_spreadsheet as _analyze_spreadsheet,
+    correlate_findings  as _correlate_findings,
+)
 init_tracing()
 
 # -- Page config --------------------------------------------------------------
@@ -333,6 +339,13 @@ def init_state():
         "intake_result":  None,       # IntakeResult dict or None
         "intake_updates": {},         # editable proposed updates for HITL
         "intake_item_id": "",         # selected registry item ID for intake
+        # Analytics agent
+        "analytics_df":       None,   # pd.DataFrame | None
+        "analytics_profile":  None,   # DataProfile | None
+        "analytics_result":   None,   # AnalyticsResult | None
+        "analytics_filename": "",     # original uploaded filename
+        "analytics_hitl":     {},     # {item_id: "pending"|"approved"|"skipped"}
+        "analytics_chart_open": False, # whether the chart input field is visible
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -781,7 +794,7 @@ with main_tabs[0]:
                 ">  ANALYZE",
                 disabled=not _file_ready,
                 key="intake_analyze_btn",
-                use_container_width=True,
+                width="stretch",
             )
 
             if _intake_submitted and _uploaded_file is not None:
@@ -895,13 +908,13 @@ with main_tabs[0]:
                             "✓  Apply update",
                             disabled=not _selected_id,
                             key="intake_approve_btn",
-                            use_container_width=True,
+                            width="stretch",
                         )
                     with _col_discard:
                         _discarded = st.button(
                             "✕  Discard",
                             key="intake_discard_btn",
-                            use_container_width=True,
+                            width="stretch",
                         )
 
                     if _approved and _selected_id:
@@ -936,6 +949,328 @@ with main_tabs[0]:
                         st.rerun()
     # -----------------------------------------------------------------------------
 
+    # -- Spreadsheet Analytics -----------------------------------------------------
+    with st.expander("📊  Spreadsheet Analytics", expanded=False):
+        st.caption("Upload a CSV, XLSX, or ODS file to extract metrics, trends, and anomalies from your maintenance data.")
+
+        _an_google_key  = st.session_state.get("google_api_key", "").strip()
+        _an_no_key      = not _an_google_key
+
+        if _an_no_key:
+            st.markdown(
+                "<span style='color:#484f58;font-size:12px;font-family:IBM Plex Mono,monospace;'>"
+                "Google API key required — add GOOGLE_API_KEY in the sidebar.</span>",
+                unsafe_allow_html=True,
+            )
+        else:
+            _an_file = st.file_uploader(
+                "Spreadsheet",
+                type=["csv", "xlsx", "xls", "ods"],
+                label_visibility="collapsed",
+                key="analytics_file_upload",
+            )
+
+            if _an_file is not None:
+                # Parse + profile on new upload
+                if _an_file.name != st.session_state.get("analytics_filename", ""):
+                    try:
+                        _an_df = _load_analytics_file(_an_file.read(), _an_file.name)
+                        _an_profile = _profile_dataframe(_an_df)
+                        st.session_state.analytics_df       = _an_df
+                        st.session_state.analytics_profile  = _an_profile
+                        st.session_state.analytics_filename = _an_file.name
+                        st.session_state.analytics_result   = None
+                        st.session_state.analytics_hitl     = {}
+                    except Exception as _an_err:
+                        st.markdown(
+                            f"<div style='background:#1a0a0a;border:1px solid #ff6b6b;border-radius:6px;"
+                            f"padding:10px 14px;font-size:12px;color:#ff6b6b;font-family:IBM Plex Mono,monospace;'>"
+                            f"File error: {_an_err}</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                _an_profile = st.session_state.get("analytics_profile")
+
+                if _an_profile and _an_profile.get("row_count", 0) > 0:
+                    # Truncation warning
+                    if _an_profile.get("truncated"):
+                        st.markdown(
+                            f"<span style='color:#fbbf24;font-size:12px;font-family:IBM Plex Mono,monospace;'>"
+                            f"⚠ File has {_an_profile['original_rows']} rows — analysis limited to first 500.</span>",
+                            unsafe_allow_html=True,
+                        )
+
+                    # Profile strip
+                    _an_meta_parts = [
+                        f"{_an_profile['row_count']} rows",
+                        f"{_an_profile['col_count']} cols",
+                    ]
+                    if _an_profile.get("date_range"):
+                        _an_meta_parts.append(_an_profile["date_range"])
+                    if _an_profile.get("numeric_cols"):
+                        _an_meta_parts.append(f"numeric: {', '.join(_an_profile['numeric_cols'])}")
+                    st.markdown(
+                        "<p style='color:#8b949e;font-size:12px;font-family:IBM Plex Mono,monospace;"
+                        f"margin:4px 0 8px 0;'>{'  ·  '.join(_an_meta_parts)}</p>",
+                        unsafe_allow_html=True,
+                    )
+
+                    # Data preview
+                    _an_df = st.session_state.get("analytics_df")
+                    if _an_df is not None:
+                        st.dataframe(_an_df.head(5), width="stretch", height=180)
+
+                    # Analyze button
+                    _an_analyze_btn = st.button(
+                        ">  ANALYZE",
+                        key="analytics_analyze_btn",
+                        width="stretch",
+                    )
+
+                    if _an_analyze_btn:
+                        with st.spinner("Analytics agent analyzing spreadsheet..."):
+                            _an_result = _analyze_spreadsheet(
+                                st.session_state.analytics_profile,
+                                api_key=_an_google_key,
+                            )
+                        st.session_state.analytics_result = _an_result
+                        st.session_state.analytics_hitl   = {}
+
+            # -- Results display --
+            _an_result = st.session_state.get("analytics_result")
+            if _an_result:
+                if _an_result.get("error") and not _an_result.get("findings"):
+                    st.markdown(
+                        f"<div style='background:#1a0a0a;border:1px solid #ff6b6b;border-radius:6px;"
+                        f"padding:10px 14px;font-size:12px;color:#ff6b6b;font-family:IBM Plex Mono,monospace;'>"
+                        f"Analytics error: {_an_result['error']}</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    _an_conf      = _an_result.get("confidence", 0.0)
+                    _an_conf_pct  = int(_an_conf * 100)
+                    _an_conf_color = (
+                        "#56d364" if _an_conf >= 0.80 else
+                        "#fbbf24" if _an_conf >= 0.55 else
+                        "#ff6b6b"
+                    )
+
+                    # Confidence bar
+                    st.markdown(
+                        f"""
+                        <div style='display:flex;align-items:center;gap:14px;margin:10px 0 6px 0;'>
+                          <span style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#484f58;
+                                       text-transform:uppercase;letter-spacing:0.5px;'>confidence</span>
+                          <div style='flex:1;background:#21262d;border-radius:4px;height:6px;overflow:hidden;'>
+                            <div style='width:{_an_conf_pct}%;background:{_an_conf_color};height:100%;border-radius:4px;'></div>
+                          </div>
+                          <span style='font-family:IBM Plex Mono,monospace;font-size:12px;
+                                       color:{_an_conf_color};min-width:36px;text-align:right;'>{_an_conf_pct}%</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+                    # Metric cards — 3-col grid
+                    _an_findings = _an_result.get("findings", [])
+                    if _an_findings:
+                        st.markdown(
+                            "<p style='color:#8b949e;font-size:12px;margin:8px 0 6px 0;"
+                            "font-family:IBM Plex Mono,monospace;text-transform:uppercase;"
+                            "letter-spacing:0.5px;'>Findings</p>",
+                            unsafe_allow_html=True,
+                        )
+                        _sev_color = {"critical": "#e74c3c", "warning": "#f5a623", "info": "#7ecb35"}
+                        _trend_arrow = {"increasing": "↑", "decreasing": "↓", "stable": "→", "unknown": "?"}
+                        _card_cols = st.columns(min(len(_an_findings), 3))
+                        for _fi, _finding in enumerate(_an_findings):
+                            with _card_cols[_fi % 3]:
+                                _fc = _sev_color.get(_finding.get("severity", "info"), "#7ecb35")
+                                _fa = _trend_arrow.get(_finding.get("trend", "unknown"), "?")
+                                st.markdown(
+                                    f"<div style='background:#161b22;border:1px solid {_fc};"
+                                    f"border-radius:8px;padding:12px 14px;margin-bottom:10px;'>"
+                                    f"<div style='font-size:11px;color:#8b949e;font-family:IBM Plex Mono,monospace;"
+                                    f"text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;'>"
+                                    f"{_finding.get('metric', '')}</div>"
+                                    f"<div style='font-size:20px;font-weight:700;color:{_fc};margin-bottom:2px;'>"
+                                    f"{_finding.get('value', '')} <span style='font-size:14px;'>{_fa}</span></div>"
+                                    f"<div style='font-size:11px;color:#8b949e;margin-top:4px;'>"
+                                    f"{_finding.get('insight', '')}</div>"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+
+                    # Narrative
+                    _an_narrative = _an_result.get("narrative", "")
+                    if _an_narrative:
+                        st.markdown(
+                            f"<div style='background:#161b22;border:1px solid #21262d;border-radius:6px;"
+                            f"padding:14px 16px;margin:8px 0 12px 0;font-size:13px;color:#c9d1d9;'>"
+                            f"{_an_narrative}</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    # Correlate button + Chart button — side by side
+                    _an_btn_col1, _an_btn_col2 = st.columns([1, 1])
+                    with _an_btn_col1:
+                        _an_correlate_btn = st.button(
+                            "⇢  Correlate with Registry",
+                            key="analytics_correlate_btn",
+                            width="stretch",
+                        )
+                    with _an_btn_col2:
+                        _an_chart_btn = st.button(
+                            "📈  Chart this data",
+                            key="analytics_chart_btn",
+                            width="stretch",
+                        )
+
+                    # Chart request text input — shown when chart button clicked
+                    if st.session_state.get("analytics_chart_open"):
+                        _an_chart_instruction = st.text_input(
+                            "Describe the chart",
+                            placeholder='e.g. "bar chart of cost by category" · "line chart of cost over time" · "pie chart of vendor share"',
+                            key="analytics_chart_input",
+                            label_visibility="collapsed",
+                        )
+                        _an_chart_go = st.button(
+                            ">  GENERATE CHART",
+                            key="analytics_chart_go_btn",
+                            width="stretch",
+                        )
+                        if _an_chart_go and _an_chart_instruction.strip():
+                            _an_api_key = st.session_state.get("api_key", "").strip() or None
+                            _an_df_for_chart = st.session_state.get("analytics_df")
+                            with st.spinner("Generating chart from your data..."):
+                                from tools.chart_agent import generate_chart as _generate_chart
+                                _an_fig, _an_chart_err = _generate_chart(
+                                    _an_chart_instruction.strip(),
+                                    api_key=_an_api_key,
+                                    analytics_df=_an_df_for_chart,
+                                )
+                            st.session_state.chart_result = {
+                                "fig":         _an_fig,
+                                "error":       _an_chart_err,
+                                "instruction": _an_chart_instruction.strip(),
+                            }
+                            st.session_state.analytics_chart_open = False
+                            st.rerun()
+
+                    if _an_chart_btn:
+                        st.session_state.analytics_chart_open = not st.session_state.get("analytics_chart_open", False)
+                        st.rerun()
+
+                    if _an_correlate_btn:
+                        _an_registry = _get_registry()
+                        with st.spinner("Cross-referencing registry items..."):
+                            _an_updated = _correlate_findings(
+                                _an_result,
+                                _an_registry,
+                                api_key=_an_google_key,
+                            )
+                        st.session_state.analytics_result = _an_updated
+                        # Initialize HITL state for each correlation
+                        _hitl_state = {}
+                        for _cm in _an_updated.get("correlations", []):
+                            _hitl_state[_cm["item_id"]] = "pending"
+                        st.session_state.analytics_hitl = _hitl_state
+                        st.rerun()
+
+                    # -- HITL panel --
+                    _an_correlations = _an_result.get("correlations", [])
+                    _an_hitl         = st.session_state.get("analytics_hitl", {})
+
+                    if _an_correlations:
+                        _pending_count  = sum(1 for v in _an_hitl.values() if v == "pending")
+                        _resolved_count = len(_an_hitl) - _pending_count
+
+                        st.markdown(
+                            f"<p style='color:#8b949e;font-size:12px;margin:10px 0 6px 0;"
+                            f"font-family:IBM Plex Mono,monospace;text-transform:uppercase;"
+                            f"letter-spacing:0.5px;'>Review {len(_an_correlations)} registry correlation(s)</p>",
+                            unsafe_allow_html=True,
+                        )
+
+                        for _cm in _an_correlations:
+                            _cm_id     = _cm["item_id"]
+                            _cm_status = _an_hitl.get(_cm_id, "pending")
+                            _status_badge = {
+                                "pending":  ("", "#484f58"),
+                                "approved": ("✓ applied", "#56d364"),
+                                "skipped":  ("✕ skipped", "#484f58"),
+                            }.get(_cm_status, ("", "#484f58"))
+
+                            st.markdown(
+                                f"<div style='background:#161b22;border:1px solid #30363d;"
+                                f"border-radius:6px;padding:12px 14px;margin-bottom:8px;'>"
+                                f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+                                f"<span style='font-family:IBM Plex Mono,monospace;font-size:13px;"
+                                f"font-weight:700;color:#c9d1d9;'>{_cm_id}</span>"
+                                f"<span style='font-size:11px;color:{_status_badge[1]};'>{_status_badge[0]}</span>"
+                                f"</div>"
+                                f"<div style='font-size:12px;color:#8b949e;margin:4px 0;'>{_cm.get('item_title', '')}</div>"
+                                f"<div style='font-size:12px;color:#8b949e;font-style:italic;'>{_cm.get('relevance', '')}</div>"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+
+                            if _cm_status == "pending":
+                                _note_key = f"analytics_note_{_cm_id}"
+                                _edited_note = st.text_area(
+                                    f"Note for {_cm_id}",
+                                    value=_cm.get("proposed_note", ""),
+                                    height=70,
+                                    key=_note_key,
+                                    label_visibility="collapsed",
+                                )
+                                _hitl_col1, _hitl_col2 = st.columns([1, 1])
+                                with _hitl_col1:
+                                    _approve_btn = st.button(
+                                        f"✓  Append to {_cm_id}",
+                                        key=f"analytics_approve_{_cm_id}",
+                                        width="stretch",
+                                    )
+                                with _hitl_col2:
+                                    _skip_btn = st.button(
+                                        "✕  Skip",
+                                        key=f"analytics_skip_{_cm_id}",
+                                        width="stretch",
+                                    )
+
+                                if _approve_btn:
+                                    from tools.registry_tools import update_item as _update_item
+                                    from tools.registry_tools import get_registry as _get_reg_direct
+                                    _reg_items = _get_reg_direct()
+                                    _target = next((i for i in _reg_items if i["id"] == _cm_id), None)
+                                    if _target:
+                                        _existing_desc = _target.get("description", "").strip()
+                                        _appended = (
+                                            f"{_existing_desc}\n\n[Analytics] {_edited_note.strip()}"
+                                            if _existing_desc
+                                            else f"[Analytics] {_edited_note.strip()}"
+                                        )
+                                        _update_result = _update_item(_cm_id, {"description": _appended})
+                                        if _update_result:
+                                            st.session_state.analytics_hitl[_cm_id] = "approved"
+                                            st.rerun()
+
+                                if _skip_btn:
+                                    st.session_state.analytics_hitl[_cm_id] = "skipped"
+                                    st.rerun()
+
+                        # Summary when all resolved
+                        if _pending_count == 0 and _an_hitl:
+                            _approved_ct = sum(1 for v in _an_hitl.values() if v == "approved")
+                            _skipped_ct  = sum(1 for v in _an_hitl.values() if v == "skipped")
+                            st.markdown(
+                                f"<div style='background:#0d1f0d;border:1px solid #238636;border-radius:6px;"
+                                f"padding:10px 14px;font-size:12px;color:#56d364;font-family:IBM Plex Mono,monospace;'>"
+                                f"✓ All correlations reviewed — {_approved_ct} applied, {_skipped_ct} skipped.</div>",
+                                unsafe_allow_html=True,
+                            )
+    # -----------------------------------------------------------------------------
+
     if submitted and unified_input.strip():
         _input        = unified_input.strip()
         st.session_state.pending_input = ""
@@ -954,8 +1289,14 @@ with main_tabs[0]:
 
         elif _intent_class == "chart":
             # AI chart generation — runs inline, result stored for right column
+            # Pass analytics_df if available so NL instructions can reference uploaded data
+            _an_df_nl = st.session_state.get("analytics_df")
             with st.spinner("Chart agent building visualization..."):
-                _fig, _chart_err = _generate_chart(_input, api_key=_api_key)
+                _fig, _chart_err = _generate_chart(
+                    _input,
+                    api_key=_api_key,
+                    analytics_df=_an_df_nl,
+                )
             st.session_state.chart_result = {
                 "fig":         _fig,
                 "error":       _chart_err,

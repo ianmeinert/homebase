@@ -44,15 +44,7 @@ agent layer.
 
 ### File Ingest Agent (CSV / Excel / ODS)
 
-**Provider:** Groq (Llama 3.3 70B)
-**Effort:** Medium
-**Origin:** Internal — deferred from v1.9.0
-
-Bulk import registry items from tabular files. Streamlit file widget lifecycle issues
-caused deferral. Recommended approach: file path input instead of `st.file_uploader`
-to avoid stream reset race conditions.
-
----
+> **Superseded by v1.15.0 Spreadsheet Analytics Agent.** Bulk import from tabular files remains a potential future extension if registry write-back from analytics findings needs to expand beyond notes.
 
 ## Architecture Notes
 
@@ -63,7 +55,7 @@ HOMEBASE intentionally demonstrates a **multi-provider, multi-model agentic arch
 | Provider | Model | Role | Justification |
 |---|---|---|---|
 | Groq | Llama 3.3 70B | Orchestration, classification, RCA, registry commands | Low latency, high throughput for real-time agent workflows |
-| Gemini | 1.5 Flash | Document intake, multimodal understanding | Native PDF/image support; strong extraction performance |
+| Gemini | 2.5 Flash-Lite | Document intake, spreadsheet analytics, multimodal understanding | Native PDF/image support; strong extraction and data analysis performance |
 
 No single model is optimal for all tasks. LangGraph as the orchestration layer enables
 provider-agnostic routing — the same graph topology works regardless of which LLM is
@@ -109,3 +101,4 @@ behind each node.
 | v1.12.0 | Predictive Quadrant Preview (inline badge, confidence bar, Groq/Llama) |
 | v1.13.0 | Completeness Scorer + Prompt Agent (per-category rubrics, follow-up questions, integrated into Predictive Quadrant Preview expander) |
 | v1.14.0 | Document Intake Agent (Gemini 2.0 Flash multimodal, HITL registry updates, PDF + image support, Google API key integration) |
+| v1.15.0 | Spreadsheet Analytics Agent (Gemini 2.5 Flash-Lite, pandas profiling, HITL registry correlation), chart generation from uploaded data (Option A + B), complex chart token fix, Streamlit deprecation fix, post-v1.14.0 bug fixes |

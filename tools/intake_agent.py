@@ -173,7 +173,7 @@ def process_document(
         registry_context = _format_registry_list(registry)
 
         response = client.models.generate_content(
-            model="gemini-3-flash-preview",
+            model="gemini-2.5-flash-lite",
             contents=[
                 types.Content(parts=[
                     types.Part(text=_SYSTEM_PROMPT),
