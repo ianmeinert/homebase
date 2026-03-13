@@ -4,7 +4,19 @@ All notable changes to HOMEBASE are documented here.
 
 ---
 
-## v1.15.0
+## v1.16.0
+
+- **Schema-Aware Metric Discovery Agent** (`tools/schema_agent.py`) — Gemini 2.5 Flash-Lite analyzes data schemas and surfaces computable metrics, derived field recommendations, data quality observations, and schema gap analysis
+- **Dual input support** — accepts tabular files (CSV / XLSX / ODS) profiled via pandas, and Mermaid ERD markdown parsed into entity/field/type tables; both inputs normalize to `SchemaSource` before a single LLM call; multiple sources can be combined (e.g. CSV + ERD) in one discovery run
+- **`DiscoveryReport` TypedDict** — structured output with `computable_metrics`, `derived_fields`, `quality_observations`, `schema_gaps`, `narrative`, and `confidence` (analytic maturity score 0.0–1.0)
+- **Polished results panel** — tabbed layout (`📊 Metrics` / `🔧 Derived` / `⚠ Gaps` / `🔍 Quality`) with item counts per tab; summary stat pills (metrics, derived fields, gaps, critical/warning counts) above tabs; header bar with large analytic maturity % and slim colored progress bar; narrative rendered with blue left-border accent; metric cards with per-card confidence progress bar and field names highlighted in blue; derived/gap cards with colored top-border accent; quality observations with severity-tinted background + icon; markdown export via download button
+- **File uploader lifecycle fix** — `on_change` callback persists file bytes to session state before button-click rerun wipes the uploader widget; empty-read guard prevents stale byte overwrite; debug warning surfaces when session state bytes are missing
+- **HOMEBASE ERD** (`homebase_erd.md`) — Mermaid ERD documenting `registry` and `run_history` table schemas with field types, constraints, and relationship annotation; serves as both project documentation and a test input for the Mermaid path of the discovery agent
+- **Dependency fixes** — `google-genai>=1.0.0`, `openpyxl>=3.1.0`, and `odfpy>=1.4.0` added as explicit dependencies in `pyproject.toml`; `schema_agent` updated from deprecated `google.generativeai` to the current `google.genai` SDK (same pattern as `intake_agent`); model string corrected to `gemini-2.5-flash-lite`
+- **Proof of concept notice** — POC disclaimer added to `README.md` and `homebase_erd.md` clarifying that HOMEBASE has not undergone formal code review, security assessment, penetration testing, or production hardening
+- **54 new tests** (`tests/test_schema_agent.py`) — covers `is_mermaid`, Mermaid type inference, `parse_mermaid` (entity extraction, field types, relationship context), `parse_tabular` (CSV/XLSX, 500-row cap, type detection, pandas 2.x StringDtype), and `discover_metrics` (mock LLM, confidence clamping, severity normalization, markdown fence stripping, truncation guard, multi-source input); total suite: 554 passing
+
+
 
 - **Spreadsheet Analytics Agent** (`tools/analytics_agent.py`) — Gemini 2.5 Flash-Lite ingests CSV, XLSX, and ODS files (≤500 rows); pure-pandas profiling pass extracts column types, stats, value counts, and date ranges without sending raw data to the LLM; second Gemini call produces 3–8 ranked findings with normalized trend, severity, and confidence (clamped 0.0–1.0)
 - **Registry correlation** — third Gemini call cross-references analytics findings against the live registry; validates item IDs before any write; never raises on empty or malformed registry
@@ -18,6 +30,8 @@ All notable changes to HOMEBASE are documented here.
 - **Bug fixes (folded from post-v1.14.0)** — intent router: whys/rca keywords take priority over item ID presence; `run_whys()` accepts `item_id` for item-scoped analysis; `item_ids` normalized to `list[str]` in both RCA execution paths; defensive `str()` cast at cluster ID join in `app.py`
 - **55 new tests** (`tests/test_analytics_agent.py`) — covers `load_file` dispatch, `profile_dataframe` (truncation, type detection, stats, nulls), `analyze_spreadsheet` (mock LLM, normalization, error handling), `correlate_findings` (empty registry guard, invalid ID filter, result merging); total suite: 485 passing
 
+
+
 - **Document Intake Agent** (`tools/intake_agent.py`) — Gemini 2.0 Flash (multimodal) reads uploaded warranty documents, contractor invoices, work receipts, and inspection reports; extracts structured fields (date, contractor, cost, scope, item reference, notes); matches document to the closest registry item; proposes targeted field updates
 - **HITL review panel** — proposed updates surface in a structured review panel before any registry write occurs; user can select/override the target registry item, edit the description, adjust status, and approve or discard; `update_item()` is only called after explicit approval
 - **Multi-provider architecture** — introduces Gemini as a second LLM provider alongside Groq/Llama; Groq handles real-time orchestration and classification (speed-optimized), Gemini handles document understanding (multimodal-optimized); each model does what it does best, coordinated by the same LangGraph runtime
@@ -26,6 +40,8 @@ All notable changes to HOMEBASE are documented here.
 - **Google API key integration** — separate sidebar input (`AIza...`) for the Gemini key; displayed as muted hint when unset; does not block Groq-backed features
 - **`⬡ Document Intake` expander** — wired into Dashboard tab alongside Predictive Quadrant Preview and Completeness Scorer; `st.file_uploader` accepts PDF, PNG, JPG, JPEG, WEBP; form wrapper prevents lifecycle race conditions
 - **52 new tests** (`tests/test_intake_agent.py`) — covers input guards, all document types, confidence normalization, doc type normalization, field sanitization, item ID validation, markdown fence stripping, error handling, API key routing, and helper functions
+
+
 
 - **Completeness Scorer** (`tools/completeness_agent.py`) — Groq/Llama 3.3 70B scores a free-text issue description against a per-category rubric (5 categories × 5 fields each); returns completeness score (0.0–1.0), list of missing/vague fields, and targeted follow-up questions
 - **Per-category rubrics** — HVAC, plumbing, electrical, appliance, and general each define 5 high-value fields (symptom, location, duration, severity signals, category-specific context); rubric drives both the system prompt and the scoring logic

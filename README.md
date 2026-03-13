@@ -2,7 +2,15 @@
 
 ### Multi-Agent Home Management System — LangGraph + Groq
 
-### v1.15.0
+### v1.16.0
+
+> **⚠ Proof of Concept — Not Production Ready**
+> HOMEBASE is a demonstration system built to illustrate multi-agent agentic AI architecture
+> patterns. It has not undergone formal code review, security assessment, penetration testing,
+> secrets management audit, or production hardening. It should not be deployed in a production
+> environment, used to process real sensitive data, or presented as a production-grade system
+> without a full security review, compliance evaluation, and architectural assessment appropriate
+> to the target environment and regulatory context.
 
 A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
 orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
@@ -99,6 +107,7 @@ homebase/
 |   +-- completeness_agent.py     # Completeness scorer + follow-up question generator (per-category rubrics)
 |   +-- intake_agent.py           # Document Intake Agent — Gemini multimodal, extracts structured data from docs
 |   +-- analytics_agent.py        # Spreadsheet Analytics Agent — Gemini 2.5 Flash-Lite, pandas profiling, HITL registry correlation
+|   +-- schema_agent.py           # Schema Metric Discovery Agent — Gemini 2.5 Flash-Lite, CSV + Mermaid ERD input, metric/gap analysis
 |   +-- subagent_tools.py         # Rule-based tools (reference/fallback)
 |
 +-- scripts/
@@ -120,9 +129,10 @@ homebase/
     +-- test_completeness_agent.py # 60 tests — input guards, score normalization, rubrics, category inference, error handling
     +-- test_intake_agent.py       # 53 tests — input guards, doc types, confidence, field sanitization, item ID validation, error handling
     +-- test_analytics_agent.py    # 55 tests — load_file dispatch, pandas profiling, LLM normalization, registry correlation, error handling
+    +-- test_schema_agent.py       # 54 tests — is_mermaid, Mermaid parsing, tabular profiling, pandas 2.x StringDtype, LLM normalization, error handling
 ```
 
-**Total: 485 passing tests** (15 pre-existing plotly import failures in test_chart_agent — plotly not installed in test container; works correctly in the application venv)
+**Total: 554 passing tests**
 
 ---
 
@@ -200,6 +210,7 @@ The UI provides:
 - **Predictive Quadrant Preview + Completeness Scorer** — collapsible expander below the command field; predicts quadrant (HU/HI, HU/LI, LU/HI, LU/LI) with confidence bar and rationale, then scores the description completeness against a per-category rubric and surfaces numbered follow-up questions for missing or underspecified fields
 - **Document Intake Agent** — upload a warranty, invoice, receipt, or inspection report (PDF/image); Gemini 2.5 Flash-Lite extracts structured fields and matches to the closest registry item; HITL review panel requires explicit approval before any registry write
 - **Spreadsheet Analytics Agent** — upload CSV, XLSX, or ODS files; pandas profiling pass characterizes columns without sending raw data to the LLM; Gemini 2.5 Flash-Lite produces ranked findings with trend, severity, and confidence scoring; registry correlation cross-references findings against live items; per-item HITL required before any note is written; chart integration available via button or NL command
+- **Schema Metric Discovery Agent** — upload a tabular schema file (CSV / XLSX / ODS) or paste a Mermaid ERD; Gemini 2.5 Flash-Lite surfaces computable metrics, derived field recommendations, data quality observations, and schema gaps; results rendered in a tabbed panel with summary stat pills, per-metric confidence bars, severity-tinted quality observations, and markdown export; analytic maturity confidence score; supports combined multi-source input (CSV + ERD in one run)
 - **Run history tab** — audit trail of all runs; expandable cards with quadrant breakdown, HITL decisions, deferred items, and full report
 
 ### CLI — Interactive HITL mode
@@ -312,6 +323,7 @@ for cost modeling, debugging, and enterprise justification.
 | Completeness scoring | `completeness_agent.py` — `score_completeness()` | 1 per score (deduped) |
 | Document intake | `intake_agent.py` — `process_document()` | 1 per uploaded document |
 | Spreadsheet analytics | `analytics_agent.py` — `analyze_spreadsheet()` + `correlate_findings()` | 2 per uploaded file (profile → findings, then correlation) |
+| Schema metric discovery | `schema_agent.py` — `discover_metrics()` | 1 per discovery run (all sources combined into one call) |
 
 **Typical LLM calls per full run:** 7–8 (1 orchestrator + 5 subagents + 1 synthesizer + 0–1 command routing)
 

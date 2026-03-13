@@ -41,6 +41,12 @@ from tools.analytics_agent import (
     analyze_spreadsheet as _analyze_spreadsheet,
     correlate_findings  as _correlate_findings,
 )
+from tools.schema_agent import (
+    parse_tabular    as _parse_tabular,
+    parse_mermaid    as _parse_mermaid,
+    is_mermaid       as _is_mermaid,
+    discover_metrics as _discover_metrics,
+)
 init_tracing()
 
 # -- Page config --------------------------------------------------------------
@@ -346,6 +352,12 @@ def init_state():
         "analytics_filename": "",     # original uploaded filename
         "analytics_hitl":     {},     # {item_id: "pending"|"approved"|"skipped"}
         "analytics_chart_open": False, # whether the chart input field is visible
+        # Schema Metric Discovery agent
+        "schema_sources":     [],     # list[SchemaSource]
+        "schema_result":      None,   # DiscoveryReport | None
+        "schema_mermaid_text": "",    # pasted mermaid text
+        "schema_file_bytes":  None,   # uploaded tabular file bytes
+        "schema_filename":    "",     # uploaded tabular filename
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -1269,6 +1281,379 @@ with main_tabs[0]:
                                 f"✓ All correlations reviewed — {_approved_ct} applied, {_skipped_ct} skipped.</div>",
                                 unsafe_allow_html=True,
                             )
+
+    # -- Schema Metric Discovery ---------------------------------------------------
+    with st.expander("🔬  Schema Metric Discovery", expanded=False):
+        _sc_google_key = st.session_state.get("google_api_key", "").strip() or None
+
+        if not _sc_google_key:
+            st.markdown(
+                "<p style='font-size:12px;color:#8b949e;font-family:IBM Plex Mono,monospace;'>"
+                "Google API key required — enter it in the sidebar to enable schema discovery.</p>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                "<p style='font-size:12px;color:#8b949e;font-family:IBM Plex Mono,monospace;'>"
+                "Accepts a tabular file (CSV / XLSX / ODS) and/or a Mermaid ERD (paste below). "
+                "Gemini 2.5 Flash-Lite analyzes the schema and surfaces computable metrics, "
+                "derived field recommendations, quality observations, and schema gaps.</p>",
+                unsafe_allow_html=True,
+            )
+
+            # -- Input: tabular file --
+            # Use on_change callback to persist bytes before button-click rerun wipes the uploader
+            def _sc_on_file_change():
+                f = st.session_state.get("schema_file_uploader")
+                if f is not None:
+                    _b = f.read()
+                    if _b:
+                        st.session_state.schema_file_bytes = _b
+                        st.session_state.schema_filename   = f.name
+
+            _sc_file = st.file_uploader(
+                "Upload schema source (CSV / XLSX / ODS)",
+                type=["csv", "xlsx", "xls", "ods"],
+                key="schema_file_uploader",
+                on_change=_sc_on_file_change,
+            )
+            # Also read inline in case on_change hasn't fired yet (first render)
+            if _sc_file is not None:
+                _sc_bytes = _sc_file.read()
+                if _sc_bytes:
+                    st.session_state.schema_file_bytes = _sc_bytes
+                    st.session_state.schema_filename   = _sc_file.name
+
+            # -- Input: Mermaid ERD paste --
+            # Do NOT set value= — let Streamlit manage state via key to avoid widget conflicts
+            _sc_mermaid_input = st.text_area(
+                "Or paste a Mermaid ERD",
+                height=160,
+                placeholder="erDiagram\n  ENTITY {\n    TEXT id PK\n    ...\n  }",
+                key="schema_mermaid_textarea",
+            )
+
+            _sc_has_file    = bool(st.session_state.get("schema_file_bytes"))
+            _sc_has_mermaid = bool(_sc_mermaid_input.strip()) and _is_mermaid(_sc_mermaid_input)
+
+            if _sc_has_file:
+                st.markdown(
+                    f"<p style='font-size:11px;color:#58a6ff;font-family:IBM Plex Mono,monospace;'>"
+                    f"📄 {st.session_state.schema_filename} loaded</p>",
+                    unsafe_allow_html=True,
+                )
+            if _sc_has_mermaid:
+                st.markdown(
+                    "<p style='font-size:11px;color:#56d364;font-family:IBM Plex Mono,monospace;'>"
+                    "✓ Valid Mermaid ERD detected</p>",
+                    unsafe_allow_html=True,
+                )
+            elif _sc_mermaid_input.strip():
+                st.markdown(
+                    "<p style='font-size:11px;color:#f5a623;font-family:IBM Plex Mono,monospace;'>"
+                    "⚠ Mermaid text not recognized — ensure it starts with erDiagram</p>",
+                    unsafe_allow_html=True,
+                )
+
+            _sc_discover_btn = st.button(
+                "> DISCOVER METRICS",
+                disabled=not (_sc_has_file or _sc_has_mermaid),
+                key="schema_discover_btn",
+            )
+
+            if _sc_discover_btn:
+                _sc_sources = []
+                _sc_parse_ok = True
+
+                if _sc_has_file:
+                    with st.spinner("Profiling schema from file..."):
+                        try:
+                            _sc_src = _parse_tabular(
+                                st.session_state.schema_file_bytes,
+                                st.session_state.schema_filename,
+                            )
+                            _sc_sources.append(_sc_src)
+                        except Exception as _sc_e:
+                            st.error(f"File parse error: {_sc_e}")
+                            _sc_parse_ok = False
+                else:
+                    # Debug: surface why file is not being seen
+                    _sc_debug_bytes = st.session_state.get("schema_file_bytes")
+                    if _sc_debug_bytes is None:
+                        st.warning("No file bytes in session state — re-upload the file and try again.")
+
+                if _sc_has_mermaid:
+                    with st.spinner("Parsing Mermaid ERD..."):
+                        try:
+                            _sc_erd_sources = _parse_mermaid(_sc_mermaid_input)
+                            _sc_sources.extend(_sc_erd_sources)
+                        except Exception as _sc_e:
+                            st.error(f"Mermaid parse error: {_sc_e}")
+                            _sc_parse_ok = False
+
+                if _sc_sources and _sc_parse_ok:
+                    with st.spinner("Running schema metric discovery (Gemini 2.5 Flash-Lite)..."):
+                        try:
+                            _sc_result = _discover_metrics(_sc_sources, api_key=_sc_google_key)
+                            st.session_state.schema_result  = _sc_result
+                            st.session_state.schema_sources = _sc_sources
+                            st.rerun()
+                        except Exception as _sc_e:
+                            st.error(f"Discovery error: {_sc_e}")
+                elif not _sc_sources and _sc_parse_ok:
+                    st.warning("No valid sources parsed — check file format or Mermaid syntax.")
+
+            # -- Results panel --
+            _sc_result = st.session_state.get("schema_result")
+
+            if _sc_result:
+                _sc_conf       = _sc_result.get("confidence", 0.0)
+                _sc_conf_color = "#56d364" if _sc_conf >= 0.7 else "#f5a623" if _sc_conf >= 0.4 else "#e74c3c"
+                _sc_metrics    = _sc_result.get("computable_metrics", [])
+                _sc_derived    = _sc_result.get("derived_fields", [])
+                _sc_gaps       = _sc_result.get("schema_gaps", [])
+                _sc_quality    = _sc_result.get("quality_observations", [])
+                _sev_color     = {"critical": "#e74c3c", "warning": "#f5a623", "info": "#58a6ff"}
+                _sev_icon      = {"critical": "🔴", "warning": "🟡", "info": "🔵"}
+
+                # ── Header bar ──────────────────────────────────────────────
+                st.markdown(
+                    f"<div style='background:#161b22;border:1px solid #30363d;border-radius:8px;"
+                    f"padding:14px 18px;margin:14px 0 10px 0;display:flex;align-items:center;gap:0;'>"
+                    f"<div style='flex:1;'>"
+                    f"<span style='font-size:15px;color:#e6edf3;font-family:IBM Plex Mono,monospace;"
+                    f"font-weight:700;letter-spacing:0.5px;'>📐 {_sc_result.get('entity_name','')}</span>"
+                    f"&nbsp;&nbsp;<span style='font-size:11px;color:#484f58;font-family:IBM Plex Mono,monospace;"
+                    f"background:#0d1117;padding:2px 7px;border-radius:10px;border:1px solid #21262d;'>"
+                    f"{_sc_result.get('source_type','')}</span>"
+                    f"</div>"
+                    f"<div style='text-align:right;'>"
+                    f"<div style='font-size:11px;color:#8b949e;font-family:IBM Plex Mono,monospace;"
+                    f"margin-bottom:4px;'>ANALYTIC MATURITY</div>"
+                    f"<div style='font-size:22px;color:{_sc_conf_color};font-family:IBM Plex Mono,monospace;"
+                    f"font-weight:700;line-height:1;'>{_sc_conf:.0%}</div>"
+                    f"</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # Maturity bar
+                _sc_bar_w = int(_sc_conf * 100)
+                st.markdown(
+                    f"<div style='background:#21262d;border-radius:3px;height:4px;margin-bottom:14px;'>"
+                    f"<div style='background:{_sc_conf_color};width:{_sc_bar_w}%;height:4px;"
+                    f"border-radius:3px;transition:width 0.4s;'></div></div>",
+                    unsafe_allow_html=True,
+                )
+
+                # ── Narrative ───────────────────────────────────────────────
+                if _sc_result.get("narrative"):
+                    st.markdown(
+                        f"<div style='background:#0d1117;border-left:3px solid #58a6ff;"
+                        f"border-radius:0 6px 6px 0;padding:12px 16px;font-size:12px;"
+                        f"color:#c9d1d9;font-family:IBM Plex Mono,monospace;line-height:1.6;"
+                        f"margin-bottom:18px;'>{_sc_result['narrative']}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                # ── Summary stat pills ───────────────────────────────────────
+                _crit_count = sum(1 for o in _sc_quality if o.get("severity") == "critical")
+                _warn_count = sum(1 for o in _sc_quality if o.get("severity") == "warning")
+                st.markdown(
+                    f"<div style='display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;'>"
+                    f"<span style='background:#0d2137;border:1px solid #1f6feb;border-radius:12px;"
+                    f"padding:4px 12px;font-size:11px;color:#58a6ff;font-family:IBM Plex Mono,monospace;'>"
+                    f"📊 {len(_sc_metrics)} metrics</span>"
+                    f"<span style='background:#1a1030;border:1px solid #6e40c9;border-radius:12px;"
+                    f"padding:4px 12px;font-size:11px;color:#d2a8ff;font-family:IBM Plex Mono,monospace;'>"
+                    f"🔧 {len(_sc_derived)} derived fields</span>"
+                    f"<span style='background:#191209;border:1px solid #9e6a03;border-radius:12px;"
+                    f"padding:4px 12px;font-size:11px;color:#fbbf24;font-family:IBM Plex Mono,monospace;'>"
+                    f"⚠ {len(_sc_gaps)} gaps</span>"
+                    + (f"<span style='background:#2d0f0f;border:1px solid #8b1a1a;border-radius:12px;"
+                    f"padding:4px 12px;font-size:11px;color:#e74c3c;font-family:IBM Plex Mono,monospace;'>"
+                    f"🔴 {_crit_count} critical</span>" if _crit_count else "")
+                    + (f"<span style='background:#1f1700;border:1px solid #7d5a00;border-radius:12px;"
+                    f"padding:4px 12px;font-size:11px;color:#f5a623;font-family:IBM Plex Mono,monospace;'>"
+                    f"🟡 {_warn_count} warnings</span>" if _warn_count else "")
+                    + f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # ── Tabs ────────────────────────────────────────────────────
+                _sc_tab_m, _sc_tab_d, _sc_tab_g, _sc_tab_q = st.tabs([
+                    f"📊 Metrics ({len(_sc_metrics)})",
+                    f"🔧 Derived ({len(_sc_derived)})",
+                    f"⚠ Gaps ({len(_sc_gaps)})",
+                    f"🔍 Quality ({len(_sc_quality)})",
+                ])
+
+                with _sc_tab_m:
+                    if _sc_metrics:
+                        for _m in _sc_metrics:
+                            _m_conf = _m.get("confidence", 0.5)
+                            _m_col  = "#56d364" if _m_conf >= 0.7 else "#f5a623" if _m_conf >= 0.4 else "#e74c3c"
+                            _m_bar  = int(_m_conf * 100)
+                            _fields = ", ".join(f"`{f}`" for f in _m.get("fields_required", []))
+                            st.markdown(
+                                f"<div style='background:#0d1117;border:1px solid #21262d;border-radius:8px;"
+                                f"padding:12px 16px;margin-bottom:8px;'>"
+                                f"<div style='display:flex;align-items:flex-start;justify-content:space-between;"
+                                f"margin-bottom:6px;'>"
+                                f"<span style='font-size:13px;color:#e6edf3;font-family:IBM Plex Mono,monospace;"
+                                f"font-weight:600;'>{_m.get('metric_name','')}</span>"
+                                f"<span style='font-size:13px;color:{_m_col};font-family:IBM Plex Mono,monospace;"
+                                f"font-weight:700;white-space:nowrap;margin-left:12px;'>{_m_conf:.0%}</span>"
+                                f"</div>"
+                                f"<div style='background:#161b22;border-radius:2px;height:3px;margin-bottom:8px;'>"
+                                f"<div style='background:{_m_col};width:{_m_bar}%;height:3px;border-radius:2px;'>"
+                                f"</div></div>"
+                                f"<div style='font-size:12px;color:#8b949e;font-family:IBM Plex Mono,monospace;"
+                                f"margin-bottom:6px;line-height:1.5;'>{_m.get('description','')}</div>"
+                                f"<div style='font-size:11px;color:#484f58;font-family:IBM Plex Mono,monospace;'>"
+                                f"requires: <span style='color:#58a6ff;'>"
+                                f"{', '.join(_m.get('fields_required', []))}</span></div>"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+                    else:
+                        st.markdown("<p style='color:#484f58;font-size:12px;font-family:IBM Plex Mono,monospace;'>No metrics found.</p>", unsafe_allow_html=True)
+
+                with _sc_tab_d:
+                    if _sc_derived:
+                        for _df_entry in _sc_derived:
+                            _src = ", ".join(_df_entry.get("source_fields", []))
+                            st.markdown(
+                                f"<div style='background:#0d1117;border:1px solid #21262d;"
+                                f"border-top:2px solid #6e40c9;border-radius:0 0 8px 8px;"
+                                f"padding:12px 16px;margin-bottom:8px;'>"
+                                f"<div style='font-size:13px;color:#d2a8ff;font-family:IBM Plex Mono,monospace;"
+                                f"font-weight:600;margin-bottom:5px;'>{_df_entry.get('field_name','')}</div>"
+                                f"<div style='font-size:12px;color:#c9d1d9;font-family:IBM Plex Mono,monospace;"
+                                f"margin-bottom:6px;line-height:1.5;'>{_df_entry.get('description','')}</div>"
+                                f"<div style='font-size:11px;color:#8b949e;font-family:IBM Plex Mono,monospace;"
+                                f"margin-bottom:4px;font-style:italic;'>{_df_entry.get('rationale','')}</div>"
+                                + (f"<div style='font-size:11px;color:#484f58;font-family:IBM Plex Mono,monospace;'>"
+                                f"derived from: <span style='color:#d2a8ff;'>{_src}</span></div>" if _src else "")
+                                + f"</div>",
+                                unsafe_allow_html=True,
+                            )
+                    else:
+                        st.markdown("<p style='color:#484f58;font-size:12px;font-family:IBM Plex Mono,monospace;'>No derived fields suggested.</p>", unsafe_allow_html=True)
+
+                with _sc_tab_g:
+                    if _sc_gaps:
+                        for _gap in _sc_gaps:
+                            st.markdown(
+                                f"<div style='background:#0d1117;border:1px solid #21262d;"
+                                f"border-top:2px solid #9e6a03;border-radius:0 0 8px 8px;"
+                                f"padding:12px 16px;margin-bottom:8px;'>"
+                                f"<div style='font-size:13px;color:#fbbf24;font-family:IBM Plex Mono,monospace;"
+                                f"font-weight:600;margin-bottom:5px;'>{_gap.get('suggested_field','')}</div>"
+                                f"<div style='font-size:12px;color:#c9d1d9;font-family:IBM Plex Mono,monospace;"
+                                f"margin-bottom:6px;line-height:1.5;'>{_gap.get('description','')}</div>"
+                                f"<div style='font-size:11px;font-family:IBM Plex Mono,monospace;'>"
+                                f"<span style='color:#484f58;'>unlocks → </span>"
+                                f"<span style='color:#fbbf24;'>{_gap.get('impact','')}</span></div>"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+                    else:
+                        st.markdown("<p style='color:#484f58;font-size:12px;font-family:IBM Plex Mono,monospace;'>No schema gaps identified.</p>", unsafe_allow_html=True)
+
+                with _sc_tab_q:
+                    if _sc_quality:
+                        for _obs in _sc_quality:
+                            _sev     = _obs.get("severity", "info")
+                            _obs_col = _sev_color.get(_sev, "#58a6ff")
+                            _obs_bg  = {"critical": "#1a0505", "warning": "#1a1000", "info": "#051020"}.get(_sev, "#051020")
+                            _obs_ico = _sev_icon.get(_sev, "🔵")
+                            st.markdown(
+                                f"<div style='background:{_obs_bg};border:1px solid {_obs_col}33;"
+                                f"border-left:3px solid {_obs_col};border-radius:0 8px 8px 0;"
+                                f"padding:12px 16px;margin-bottom:8px;'>"
+                                f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:5px;'>"
+                                f"<span style='font-size:12px;'>{_obs_ico}</span>"
+                                f"<span style='font-size:12px;color:{_obs_col};font-family:IBM Plex Mono,monospace;"
+                                f"font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'>{_sev}</span>"
+                                f"<span style='font-size:12px;color:#e6edf3;font-family:IBM Plex Mono,monospace;"
+                                f"font-weight:600;'>— {_obs.get('field','')}</span>"
+                                f"</div>"
+                                f"<div style='font-size:12px;color:#c9d1d9;font-family:IBM Plex Mono,monospace;"
+                                f"line-height:1.5;'>{_obs.get('observation','')}</div>"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+                    else:
+                        st.markdown("<p style='color:#484f58;font-size:12px;font-family:IBM Plex Mono,monospace;'>No quality issues found.</p>", unsafe_allow_html=True)
+
+                # ── Export + Clear ───────────────────────────────────────────
+                st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
+                _sc_btn_col1, _sc_btn_col2, _sc_btn_col3 = st.columns([2, 2, 6])
+
+                with _sc_btn_col1:
+                    # Build markdown export
+                    _sc_export_lines = [
+                        f"# Schema Metric Discovery Report",
+                        f"**Entity:** {_sc_result.get('entity_name','')}  ",
+                        f"**Source:** {_sc_result.get('source_type','')}  ",
+                        f"**Analytic Maturity:** {_sc_conf:.0%}",
+                        f"",
+                        f"## Summary",
+                        _sc_result.get("narrative", ""),
+                        f"",
+                        f"## Computable Metrics",
+                    ]
+                    for _m in _sc_metrics:
+                        _sc_export_lines += [
+                            f"### {_m.get('metric_name','')} ({_m.get('confidence',0):.0%})",
+                            _m.get("description", ""),
+                            f"*Requires: {', '.join(_m.get('fields_required', []))}*",
+                            "",
+                        ]
+                    _sc_export_lines.append("## Derived Fields")
+                    for _d in _sc_derived:
+                        _sc_export_lines += [
+                            f"### {_d.get('field_name','')}",
+                            _d.get("description", ""),
+                            f"*Rationale: {_d.get('rationale','')}*",
+                            f"*Source fields: {', '.join(_d.get('source_fields', []))}*",
+                            "",
+                        ]
+                    _sc_export_lines.append("## Schema Gaps")
+                    for _g in _sc_gaps:
+                        _sc_export_lines += [
+                            f"### {_g.get('suggested_field','')}",
+                            _g.get("description", ""),
+                            f"*Unlocks: {_g.get('impact','')}*",
+                            "",
+                        ]
+                    _sc_export_lines.append("## Quality Observations")
+                    for _o in _sc_quality:
+                        _sc_export_lines += [
+                            f"**[{_o.get('severity','info').upper()}] {_o.get('field','')}**",
+                            _o.get("observation", ""),
+                            "",
+                        ]
+                    _sc_export_md = "\n".join(_sc_export_lines)
+                    st.download_button(
+                        label="⬇ Export Report",
+                        data=_sc_export_md,
+                        file_name=f"schema_discovery_{_sc_result.get('entity_name','report').replace(' ','_').lower()}.md",
+                        mime="text/markdown",
+                        key="schema_export_btn",
+                    )
+
+                with _sc_btn_col2:
+                    if st.button("✕ Clear", key="schema_clear_btn"):
+                        st.session_state.schema_result       = None
+                        st.session_state.schema_sources      = []
+                        st.session_state.schema_file_bytes   = None
+                        st.session_state.schema_filename     = ""
+                        st.session_state.schema_mermaid_text = ""
+                        st.rerun()
+
+
     # -----------------------------------------------------------------------------
 
     if submitted and unified_input.strip():

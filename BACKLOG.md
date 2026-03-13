@@ -13,36 +13,9 @@ _Nothing currently in active development._
 
 ## Next
 
-### Schema-Aware Metric Discovery Agent
-
-**Provider:** TBD (embedding model + vector store)
-**Effort:** High
-
-Upload one or more data schemas (field definitions, data types, table relationships)
-into a RAG store. An agent reasons over the ingested schema to identify which fields
-are meaningful for metrics, which are redundant or underutilized, what derived metrics
-are computable from existing fields, and what schema gaps would need to be filled to
-unlock additional analysis.
-
-Output is a structured metric discovery report: computable metrics, recommended
-derived fields, data quality observations, and suggested additions.
-
-**Home analog:** Ingest the homebase SQLite schema (registry + run_history field
-definitions) and have the agent surface what metrics are already derivable, what
-fields are missing (e.g. cost, contractor, resolution time), and what additions
-would improve RCA quality.
-
-**Enterprise analog:** Ingest an operational data schema and have the agent analyze
-fields for metric potential — identifying what can be measured today, what requires
-additional instrumentation, and where data quality gaps exist.
-
-**Dependencies:** Embedding model, vector store (e.g. ChromaDB or FAISS), schema
-ingestion pipeline. LangGraph retrieval tool node pattern is well-suited for the
-agent layer.
+_Nothing currently in active development._
 
 ---
-
-### File Ingest Agent (CSV / Excel / ODS)
 
 > **Superseded by v1.15.0 Spreadsheet Analytics Agent.** Bulk import from tabular files remains a potential future extension if registry write-back from analytics findings needs to expand beyond notes.
 
@@ -79,7 +52,7 @@ respective strengths in long-context synthesis and structured chain-of-thought r
 | Predictive quadrant preview | Ticket severity/routing prediction before submission |
 | Completeness scorer | Classifier-informed work item creation assistant |
 | Document intake agent | Attachment scraping and structured data extraction |
-| Schema metric discovery | Schema-aware agent identifies computable metrics, gaps, and derived fields |
+| Schema metric discovery | Schema-aware agent identifies computable metrics, gaps, and derived fields from CSV or ERD input |
 | Confidence scoring | Model uncertainty quantification for stakeholder trust |
 | LangSmith tracing | Audit trail of model reasoning for compliance validation |
 | Multi-provider architecture | Provider-agnostic deployment pattern for constrained environments |
@@ -106,3 +79,4 @@ respective strengths in long-context synthesis and structured chain-of-thought r
 | v1.13.0 | Completeness Scorer + Prompt Agent (per-category rubrics, follow-up questions, integrated into Predictive Quadrant Preview expander) |
 | v1.14.0 | Document Intake Agent (Gemini 2.0 Flash multimodal, HITL registry updates, PDF + image support, Google API key integration) |
 | v1.15.0 | Spreadsheet Analytics Agent (Gemini 2.5 Flash-Lite, pandas profiling, HITL registry correlation), chart generation from uploaded data (Option A + B), complex chart token fix, Streamlit deprecation fix, post-v1.14.0 bug fixes |
+| v1.16.0 | Schema-Aware Metric Discovery Agent (Gemini 2.5 Flash-Lite, CSV + Mermaid ERD input, computable metrics, derived fields, quality observations, schema gaps), HOMEBASE ERD, POC disclaimer, dependency fixes |
