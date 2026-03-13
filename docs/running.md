@@ -96,6 +96,7 @@ uv run pytest tests/test_hitl.py -v
 
 | File | Tests | Covers |
 |---|---|---|
+| `conftest.py` | — | Global LLM mock + in-memory SQLite fixture (no API key needed) |
 | `test_registry_tools.py` | 34 | Classification logic, boundary conditions, stale detection |
 | `test_orchestrator.py` | 20 | Orchestrator node, report formatting, delegation |
 | `test_graph.py` | 10 | Graph structure, full invocation, state key completeness |
