@@ -89,7 +89,6 @@ Tracing status appears in the sidebar. Each run produces a full trace with node 
 | `langgraph>=1.0.10` | Agent graph, state management, HITL checkpointing |
 | `langchain-core>=0.3.0` | LangChain base primitives |
 | `langchain-groq>=0.2.0` | Groq/Llama model integration |
-| `langchain-google-genai>=2.0.0` | LangChain Google Generative AI integration |
 | `google-genai>=1.0.0` | Google Generative AI SDK (Gemini) |
 | `openpyxl>=3.1.0` | XLSX read/write support for pandas |
 | `odfpy>=1.4.0` | ODS support for pandas |
