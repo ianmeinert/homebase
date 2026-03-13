@@ -377,4 +377,9 @@ See [CHANGELOG.md](CHANGELOG.md).
   orchestration. The spreadsheet analytics agent (v1.15.0) extended this pattern —
   both Gemini-backed agents now use `gemini-2.5-flash-lite`. This demonstrates a
   provider-agnostic multi-model architecture where each model is used where it
-  performs best.
+  performs best. Two additional providers are identified as future candidates:
+  **Anthropic (Claude)** for long-context synthesis and instruction-sensitive
+  narrative nodes (200K token recall, strong multi-step chain adherence), and
+  **OpenAI (o3-series)** for structured chain-of-thought reasoning over schemas
+  and scoring rubrics. Neither is active yet; LangGraph's provider-agnostic routing
+  means adding either requires only a new node-level model binding.

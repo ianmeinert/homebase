@@ -56,10 +56,14 @@ HOMEBASE intentionally demonstrates a **multi-provider, multi-model agentic arch
 |---|---|---|---|
 | Groq | Llama 3.3 70B | Orchestration, classification, RCA, registry commands | Low latency, high throughput for real-time agent workflows |
 | Gemini | 2.5 Flash-Lite | Document intake, spreadsheet analytics, multimodal understanding | Native PDF/image support; strong extraction and data analysis performance |
+| Anthropic | Claude Sonnet / Opus | Long-document reasoning, instruction-sensitive writing, complex agentic chains | Superior context recall at scale (200K tokens), strong instruction adherence, reduced off-script behavior in multi-step chains; well-suited for synthesis nodes and narrative generation |
+| OpenAI | o3 / o3-mini | Structured reasoning over schemas, math-heavy scoring, competitive benchmarks | Chain-of-thought reasoning with explicit steps; strong performance on structured inference tasks (SWE-bench, HumanEval); natural fit for schema metric discovery and scoring rubric agents |
 
 No single model is optimal for all tasks. LangGraph as the orchestration layer enables
 provider-agnostic routing — the same graph topology works regardless of which LLM is
-behind each node.
+behind each node. The current active providers are Groq and Gemini; Anthropic (Claude)
+and OpenAI (o3-series) are identified as future provider candidates based on their
+respective strengths in long-context synthesis and structured chain-of-thought reasoning.
 
 ### Enterprise Analog Map
 
