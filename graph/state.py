@@ -28,6 +28,7 @@ class HombaseState(TypedDict):
     # Input
     trigger: str                                                    # What initiated this run
     groq_api_key: str                                               # Passed in at run-start, avoids env var dependency
+    anthropic_api_key: str                                          # Optional — activates Claude synthesizer if set
 
     # Registry data
     raw_registry: list[dict]                                        # Raw items from registry tool

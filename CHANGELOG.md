@@ -4,6 +4,18 @@ All notable changes to HOMEBASE are documented here.
 
 ---
 
+## v1.17.0
+
+- **Multi-provider LLM architecture** (`tools/llm_providers.py`) — provider abstraction layer supporting Groq/Llama (subagents) and Anthropic/Claude Sonnet (synthesizer); `active_provider()` detects `ANTHROPIC_API_KEY` from env or state at runtime; `get_synthesizer_model()` returns `ChatAnthropic` when a key is present, falls back to `ChatGroq` transparently; `get_subagent_model()` always uses Groq (parallel batch calls remain on the cheaper, higher-throughput provider); `provider_meta()` returns display label, model string, vendor, and brand color for sidebar rendering
+- **Claude Sonnet synthesizer** — when `ANTHROPIC_API_KEY` is set, the synthesizer node routes the final action plan narrative to `claude-sonnet-4-20250514` instead of Llama 3.3 70B; subagent recommendation calls (HVAC, Plumbing, Electrical, Appliance, General) remain on Groq; provider attribution footer appended to every synthesized report (`[Synthesized by Claude Sonnet]` or `[Synthesized by Llama 3.3 70B]`)
+- **`langchain-anthropic>=0.3.0`** added as a core dependency in `pyproject.toml`; `tools/llm_tools.py` `get_model()` now delegates to `get_subagent_model()` from the provider layer
+- **`HombaseState` update** — `anthropic_api_key: str` field added; passed through `get_initial_state()` and `synthesizer_node`; never logged or surfaced in reports
+- **Synthesizer message log** — provider selection logged at runtime: `[Synthesizer] Provider selected: CLAUDE — calling for synthesis narrative...` or `GROQ`
+- **Sidebar provider status** — Anthropic API key input added below Google key; active state shown in purple (`OK Claude synthesizer active`); inactive shown as dim (`-- Claude key (synthesizer — optional)`); SYSTEM panel shows live synthesizer provider with brand color (`Claude Sonnet` in purple, `Llama 3.3 70B` in green)
+- **29 new tests** (`tests/test_llm_providers.py`) — covers `active_provider()` (no key, empty string, whitespace, direct arg, env var), `is_claude_active()`, `get_synthesizer_model()` (returns `ChatAnthropic` vs `ChatGroq`, correct model names, key priority), `get_subagent_model()` (always Groq), `provider_meta()` (label, color, vendor per provider), and model constant assertions; total suite: 583 passing
+
+---
+
 ## v1.16.0
 
 - **Schema-Aware Metric Discovery Agent** (`tools/schema_agent.py`) — Gemini 2.5 Flash-Lite analyzes data schemas and surfaces computable metrics, derived field recommendations, data quality observations, and schema gap analysis
@@ -15,9 +27,6 @@ All notable changes to HOMEBASE are documented here.
 - **Dependency fixes** — `google-genai>=1.0.0`, `openpyxl>=3.1.0`, and `odfpy>=1.4.0` added as explicit dependencies in `pyproject.toml`; `schema_agent` updated from deprecated `google.generativeai` to the current `google.genai` SDK (same pattern as `intake_agent`); model string corrected to `gemini-2.5-flash-lite`
 - **Proof of concept notice** — POC disclaimer added to `README.md` and `homebase_erd.md` clarifying that HOMEBASE has not undergone formal code review, security assessment, penetration testing, or production hardening
 - **54 new tests** (`tests/test_schema_agent.py`) — covers `is_mermaid`, Mermaid type inference, `parse_mermaid` (entity extraction, field types, relationship context), `parse_tabular` (CSV/XLSX, 500-row cap, type detection, pandas 2.x StringDtype), and `discover_metrics` (mock LLM, confidence clamping, severity normalization, markdown fence stripping, truncation guard, multi-source input); total suite: 554 passing
-
-
-
 
 ## v1.15.0
 
@@ -33,9 +42,6 @@ All notable changes to HOMEBASE are documented here.
 - **Bug fixes (folded from post-v1.14.0)** — intent router: whys/rca keywords take priority over item ID presence; `run_whys()` accepts `item_id` for item-scoped analysis; `item_ids` normalized to `list[str]` in both RCA execution paths; defensive `str()` cast at cluster ID join in `app.py`
 - **55 new tests** (`tests/test_analytics_agent.py`) — covers `load_file` dispatch, `profile_dataframe` (truncation, type detection, stats, nulls), `analyze_spreadsheet` (mock LLM, normalization, error handling), `correlate_findings` (empty registry guard, invalid ID filter, result merging); total suite: 485 passing
 
-
-
-
 ## v1.14.0
 
 - **Document Intake Agent** (`tools/intake_agent.py`) — Gemini 2.0 Flash (multimodal) reads uploaded warranty documents, contractor invoices, work receipts, and inspection reports; extracts structured fields (date, contractor, cost, scope, item reference, notes); matches document to the closest registry item; proposes targeted field updates
@@ -46,9 +52,6 @@ All notable changes to HOMEBASE are documented here.
 - **Google API key integration** — separate sidebar input (`AIza...`) for the Gemini key; displayed as muted hint when unset; does not block Groq-backed features
 - **`⬡ Document Intake` expander** — wired into Dashboard tab alongside Predictive Quadrant Preview and Completeness Scorer; `st.file_uploader` accepts PDF, PNG, JPG, JPEG, WEBP; form wrapper prevents lifecycle race conditions
 - **52 new tests** (`tests/test_intake_agent.py`) — covers input guards, all document types, confidence normalization, doc type normalization, field sanitization, item ID validation, markdown fence stripping, error handling, API key routing, and helper functions
-
-
-
 
 ## v1.13.0
 

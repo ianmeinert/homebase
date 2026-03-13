@@ -8,6 +8,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
+from unittest.mock import patch
 from langgraph.checkpoint.memory import MemorySaver
 import uuid
 
@@ -57,6 +58,8 @@ def base_state(subagent_results=None, hu_hi=None, hitl_approved=False,
         "deferred_items": deferred_items or [],
         "summary_report": "",
         "messages": [],
+        "groq_api_key": "",
+        "anthropic_api_key": "",
     }
 
 
@@ -122,52 +125,63 @@ class TestHitlBriefingNode:
 # synthesizer_node  -  HITL decision handling
 # ---------------------------------------------------------------------------
 
+@patch("agents.orchestrator._llm_synthesize", return_value=("LLM synthesis result.", "Llama 3.3 70B"))
 class TestSynthesizerHitlDecisions:
-    def test_approved_all_items_included(self):
+    def test_approved_all_items_included(self, mock_synth):
         results = [
             make_result("H1", "hvac", "Filter", quadrant="HU/HI"),
             make_result("P1", "plumbing", "Drain", quadrant="LU/HI"),
         ]
         state = base_state(subagent_results=results, hitl_approved=True)
         result = synthesizer_node(state)
-        assert "H1" in result["summary_report"]
-        assert "P1" in result["summary_report"]
+        # Narrative comes from mock; verify both items were passed to LLM call
+        call_args = mock_synth.call_args
+        active_results = call_args[0][0]  # first positional arg
+        active_ids = [r["item"]["id"] for r in active_results]
+        assert "H1" in active_ids
+        assert "P1" in active_ids
 
-    def test_deferred_items_excluded_from_report(self):
+    def test_deferred_items_excluded_from_report(self, mock_synth):
         results = [
             make_result("H1", "hvac", "Filter", quadrant="HU/HI"),
             make_result("H2", "hvac", "Tune-up", quadrant="HU/HI"),
         ]
         state = base_state(subagent_results=results, hitl_approved=True, deferred_items=["H1"])
         result = synthesizer_node(state)
-        assert "H2" in result["summary_report"]
-        assert "H1" not in result["summary_report"].split("HITL")[0]
+        # H1 deferred — verify only H2 was passed to the LLM synthesizer
+        call_args = mock_synth.call_args
+        active_results = call_args[0][0]
+        active_ids = [r["item"]["id"] for r in active_results]
+        assert "H2" in active_ids
+        assert "H1" not in active_ids
+        # Deferred ID should appear in HITL block
+        assert "H1" in result["summary_report"]
 
-    def test_all_items_deferred_produces_empty_action_plan(self):
+    def test_all_items_deferred_produces_empty_action_plan(self, mock_synth):
         results = [make_result("H1", "hvac", "Filter", quadrant="HU/HI")]
         state = base_state(subagent_results=results, hitl_approved=True, deferred_items=["H1"])
         result = synthesizer_node(state)
         assert "HITL DECISION SUMMARY" in result["summary_report"]
 
-    def test_hitl_decision_summary_in_report(self):
+    def test_hitl_decision_summary_in_report(self, mock_synth):
         results = [make_result("H1", "hvac", "Filter", quadrant="HU/HI")]
         state = base_state(subagent_results=results, hitl_approved=True)
         result = synthesizer_node(state)
         assert "HITL DECISION SUMMARY" in result["summary_report"]
 
-    def test_approved_yes_shown_in_summary(self):
+    def test_approved_yes_shown_in_summary(self, mock_synth):
         results = [make_result("H1", "hvac", "Filter", quadrant="HU/HI")]
         state = base_state(subagent_results=results, hitl_approved=True)
         result = synthesizer_node(state)
         assert "Approved  : Yes" in result["summary_report"]
 
-    def test_approved_no_shown_in_summary(self):
+    def test_approved_no_shown_in_summary(self, mock_synth):
         results = [make_result("H1", "hvac", "Filter", quadrant="HU/HI")]
         state = base_state(subagent_results=results, hitl_approved=False)
         result = synthesizer_node(state)
         assert "Approved  : No" in result["summary_report"]
 
-    def test_deferred_ids_listed_in_summary(self):
+    def test_deferred_ids_listed_in_summary(self, mock_synth):
         results = [
             make_result("H1", "hvac", "Filter", quadrant="HU/HI"),
             make_result("H2", "hvac", "Tune-up", quadrant="HU/HI"),
@@ -177,13 +191,13 @@ class TestSynthesizerHitlDecisions:
         assert "H1" in result["summary_report"]
         assert "H2" in result["summary_report"]
 
-    def test_notes_included_in_summary(self):
+    def test_notes_included_in_summary(self, mock_synth):
         results = [make_result("H1", "hvac", "Filter", quadrant="HU/HI")]
         state = base_state(subagent_results=results, hitl_approved=True, hitl_notes="Do this weekend")
         result = synthesizer_node(state)
         assert "Do this weekend" in result["summary_report"]
 
-    def test_messages_log_deferred_items(self):
+    def test_messages_log_deferred_items(self, mock_synth):
         results = [
             make_result("H1", "hvac", "Filter", quadrant="HU/HI"),
             make_result("H2", "hvac", "Tune-up", quadrant="HU/HI"),
@@ -192,7 +206,7 @@ class TestSynthesizerHitlDecisions:
         result = synthesizer_node(state)
         assert any("H1" in msg for msg in result["messages"])
 
-    def test_empty_results_handled_gracefully(self):
+    def test_empty_results_handled_gracefully(self, mock_synth):
         state = base_state(subagent_results=[], hitl_approved=True)
         result = synthesizer_node(state)
         assert isinstance(result["summary_report"], str)
@@ -202,6 +216,7 @@ class TestSynthesizerHitlDecisions:
 # Graph  -  interrupt behavior
 # ---------------------------------------------------------------------------
 
+@patch("agents.orchestrator._llm_synthesize", return_value=("LLM synthesis result.", "Llama 3.3 70B"))
 class TestGraphInterrupt:
     def _make_config(self):
         return {"configurable": {"thread_id": str(uuid.uuid4())}}
@@ -214,16 +229,17 @@ class TestGraphInterrupt:
             "delegated_items": [], "subagent_results": [],
             "hitl_approved": False, "hitl_notes": "", "deferred_items": [],
             "summary_report": "", "messages": [],
+            "groq_api_key": "", "anthropic_api_key": "",
         }
 
-    def test_non_interrupt_graph_completes_in_one_invoke(self):
+    def test_non_interrupt_graph_completes_in_one_invoke(self, mock_synth):
         """Module-level graph (no interrupt) should complete without pausing."""
         from graph.graph import graph
         result = graph.invoke(self._initial_state())
         assert result is not None
         assert len(result["summary_report"]) > 0
 
-    def test_interactive_graph_pauses_before_synthesizer(self):
+    def test_interactive_graph_pauses_before_synthesizer(self, mock_synth):
         """Interactive graph should stop after hitl_briefing, before synthesizer."""
         g = build_interactive_graph()
         config = self._make_config()
@@ -234,7 +250,7 @@ class TestGraphInterrupt:
         assert "hitl_briefing" in node_names
         assert "synthesizer" not in node_names
 
-    def test_state_persisted_at_interrupt(self):
+    def test_state_persisted_at_interrupt(self, mock_synth):
         """State should be retrievable after interrupt."""
         g = build_interactive_graph()
         config = self._make_config()
@@ -246,7 +262,7 @@ class TestGraphInterrupt:
         assert "subagent_results" in state.values
         assert len(state.values["subagent_results"]) > 0
 
-    def test_resume_after_approval_completes_graph(self):
+    def test_resume_after_approval_completes_graph(self, mock_synth):
         """After updating state with approval, graph should resume and finish."""
         g = build_interactive_graph()
         config = self._make_config()
@@ -263,7 +279,7 @@ class TestGraphInterrupt:
         node_names = [list(c.keys())[0] for c in resume_chunks]
         assert "synthesizer" in node_names
 
-    def test_resume_with_deferrals_excludes_items(self):
+    def test_resume_with_deferrals_excludes_items(self, mock_synth):
         """Deferred item IDs should be absent from final report."""
         g = build_interactive_graph()
         config = self._make_config()
@@ -290,7 +306,7 @@ class TestGraphInterrupt:
             action_plan = report.split("HITL DECISION SUMMARY")[0]
             assert defer_id not in action_plan
 
-    def test_next_node_after_interrupt_is_synthesizer(self):
+    def test_next_node_after_interrupt_is_synthesizer(self, mock_synth):
         """LangGraph should indicate synthesizer as the next node after interrupt."""
         g = build_interactive_graph()
         config = self._make_config()

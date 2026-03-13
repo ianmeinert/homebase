@@ -128,7 +128,8 @@ def mock_llm(monkeypatch):
 
     def mock_synthesize(active_results, trigger, hitl_notes, **kwargs):
         ids = [r["item"]["id"] for r in active_results]
-        return f"Test synthesis for '{trigger}'. Items: {', '.join(ids)}" if ids else "No active items."
+        narrative = f"Test synthesis for '{trigger}'. Items: {', '.join(ids)}" if ids else "No active items."
+        return narrative, "Llama 3.3 70B"
 
     monkeypatch.setattr("agents.orchestrator._llm_synthesize", mock_synthesize)
 

@@ -23,9 +23,23 @@ SYNTHESIS_SYSTEM_PROMPT = (
 )
 
 
-def _llm_synthesize(active_results: list, trigger: str, hitl_notes: str, api_key: str = "") -> str:
-    from tools.llm_tools import get_model
-    model = get_model(api_key=api_key or None)
+def _llm_synthesize(
+    active_results: list,
+    trigger: str,
+    hitl_notes: str,
+    groq_api_key: str = "",
+    anthropic_api_key: str = "",
+) -> tuple[str, str]:
+    """
+    Run LLM synthesis. Returns (narrative, provider_label) tuple.
+    Prefers Claude Sonnet when ANTHROPIC_API_KEY is available, else Groq/Llama.
+    """
+    from tools.llm_providers import get_synthesizer_model, provider_meta
+    model = get_synthesizer_model(
+        groq_api_key=groq_api_key or None,
+        anthropic_api_key=anthropic_api_key or None,
+    )
+    meta = provider_meta(anthropic_key=anthropic_api_key or None)
     payload = {
         "trigger": trigger,
         "human_notes": hitl_notes or "None",
@@ -50,10 +64,13 @@ def _llm_synthesize(active_results: list, trigger: str, hitl_notes: str, api_key
             {"role": "system", "content": SYNTHESIS_SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(payload, indent=2)},
         ])
-        return response.content.strip()
+        return response.content.strip(), meta["label"]
     except Exception as e:
         import traceback
-        return f"Synthesis unavailable ({type(e).__name__}): {e}\n\nTraceback:\n{traceback.format_exc()}"
+        return (
+            f"Synthesis unavailable ({type(e).__name__}): {e}\n\nTraceback:\n{traceback.format_exc()}",
+            meta["label"],
+        )
 
 
 
@@ -312,8 +329,18 @@ def synthesizer_node(state: HombaseState) -> dict:
             f"{[r['item']['id'] for r in skipped_results]}"
         )
 
-    messages.append("[Synthesizer] Calling Groq for synthesis narrative...")
-    narrative = _llm_synthesize(active_results, state["trigger"], hitl_notes, api_key=state.get("groq_api_key", ""))
+    from tools.llm_providers import active_provider
+    _anthropic_key = state.get("anthropic_api_key", "")
+    _groq_key = state.get("groq_api_key", "")
+    _provider = active_provider(anthropic_key=_anthropic_key)
+    messages.append(f"[Synthesizer] Provider selected: {_provider.upper()} — calling for synthesis narrative...")
+    narrative, provider_label = _llm_synthesize(
+        active_results,
+        state["trigger"],
+        hitl_notes,
+        groq_api_key=_groq_key,
+        anthropic_api_key=_anthropic_key,
+    )
 
     # Build structured report with LLM narrative + HITL decision block
     hitl_lines = [
@@ -333,7 +360,11 @@ def synthesizer_node(state: HombaseState) -> dict:
 
     report = narrative + "\n" + "\n".join(hitl_lines)
 
-    messages.append("[Synthesizer] Final report assembled.")
+    # Provider attribution footer
+    report = report + (
+        f"\n\n  [Synthesized by {provider_label}]"
+    )
+    messages.append(f"[Synthesizer] Final report assembled via {provider_label}.")
 
     return {
         "summary_report": report,

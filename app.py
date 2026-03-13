@@ -342,6 +342,7 @@ def init_state():
         "cs_result":     None,        # CompletenessResult dict or None
         "cs_input":      "",          # last input+category that was scored (dedup key)
         "google_api_key": os.environ.get("GOOGLE_API_KEY", ""),  # Gemini API key
+        "anthropic_api_key": os.environ.get("ANTHROPIC_API_KEY", ""),  # Claude synthesizer (optional)
         "intake_result":  None,       # IntakeResult dict or None
         "intake_updates": {},         # editable proposed updates for HITL
         "intake_item_id": "",         # selected registry item ID for intake
@@ -369,6 +370,8 @@ init_state()
 # (Streamlit reruns are stateless; env vars set in one pass may not persist)
 if st.session_state.get("api_key", "").strip():
     os.environ["GROQ_API_KEY"] = st.session_state["api_key"].strip()
+if st.session_state.get("anthropic_api_key", "").strip():
+    os.environ["ANTHROPIC_API_KEY"] = st.session_state["anthropic_api_key"].strip()
 
 
 # -- Helpers -------------------------------------------------------------------
@@ -438,10 +441,11 @@ def iter_stream_chunks(stream):
                     yield node_name, node_output
 
 
-def get_initial_state(trigger: str, api_key: str = "") -> dict:
+def get_initial_state(trigger: str, api_key: str = "", anthropic_api_key: str = "") -> dict:
     return {
         "trigger": trigger,
         "groq_api_key": api_key,
+        "anthropic_api_key": anthropic_api_key,
         "raw_registry": [], "classified_items": [],
         "hu_hi": [], "hu_li": [], "lu_hi": [], "lu_li": [],
         "stale_items": [], "delegated_items": [], "subagent_results": [],
@@ -519,12 +523,33 @@ with st.sidebar:
     else:
         st.markdown("<p style='font-size:11px;color:#484f58;font-family:IBM Plex Mono,monospace;'>-- Google key (Document Intake)</p>", unsafe_allow_html=True)
 
+    anthropic_key_input = st.text_input(
+        "Anthropic API Key",
+        value=st.session_state.anthropic_api_key,
+        type="password",
+        label_visibility="collapsed",
+        placeholder="sk-ant-...",
+    )
+    if anthropic_key_input != st.session_state.anthropic_api_key:
+        st.session_state.anthropic_api_key = anthropic_key_input
+
+    anthropic_key_set = bool(st.session_state.anthropic_api_key.strip())
+    if anthropic_key_set:
+        st.markdown("<p style='font-size:11px;color:#d2a8ff;font-family:IBM Plex Mono,monospace;'>OK Claude synthesizer active</p>", unsafe_allow_html=True)
+    else:
+        st.markdown("<p style='font-size:11px;color:#484f58;font-family:IBM Plex Mono,monospace;'>-- Claude key (synthesizer — optional)</p>", unsafe_allow_html=True)
+
     st.divider()
     st.markdown("#### SYSTEM")
+    from tools.llm_providers import provider_meta as _pm
+    _synth_meta = _pm(anthropic_key=st.session_state.get("anthropic_api_key", ""))
+    _synth_color = _synth_meta["color"]
+    _synth_label = _synth_meta["label"]
     st.markdown(
         "<p style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#8b949e;'>"
         "Framework: LangGraph<br>"
-        "Model: llama-3.3-70b-versatile<br>"
+        "Subagents: Groq / Llama-3.3-70b<br>"
+        f"Synthesizer: <span style='color:{_synth_color};'>{_synth_label}</span><br>"
         "Agents: Orchestrator + 5 Specialists<br>"
         "Checkpoint: MemorySaver<br>"
         "HITL: interrupt_before synthesizer"
@@ -2044,7 +2069,7 @@ with main_tabs[0]:
             log_lines = []
 
             with st.spinner("Agents running  -  calling Groq..."):
-                for node_name, node_output in iter_stream_chunks(g.stream(get_initial_state(st.session_state.trigger, api_key=st.session_state.api_key.strip()), config=config)):
+                for node_name, node_output in iter_stream_chunks(g.stream(get_initial_state(st.session_state.trigger, api_key=st.session_state.api_key.strip(), anthropic_api_key=st.session_state.get("anthropic_api_key", "").strip()), config=config)):
                         for msg in node_output.get("messages", []):
                             cls = log_class(msg)
                             log_lines.append(f'<div class="log-line {cls}">{msg}</div>')

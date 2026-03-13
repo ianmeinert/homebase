@@ -14,6 +14,7 @@ import os
 from typing import TypedDict
 
 from langchain_groq import ChatGroq
+from tools.llm_providers import get_subagent_model
 
 
 # ---------------------------------------------------------------------------
@@ -35,13 +36,11 @@ class Recommendation(TypedDict):
 # ---------------------------------------------------------------------------
 
 def get_model(api_key: str | None = None) -> ChatGroq:
-    key = api_key or os.environ.get("GROQ_API_KEY", "")
-    return ChatGroq(
-        model="llama-3.3-70b-versatile",
-        api_key=key,
-        max_tokens=1024,
-        temperature=0,
-    )
+    """
+    Return the Groq model for subagent batch calls.
+    Synthesizer model selection is handled by llm_providers.get_synthesizer_model().
+    """
+    return get_subagent_model(groq_api_key=api_key)
 
 
 # ---------------------------------------------------------------------------
