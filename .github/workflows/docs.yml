@@ -24,8 +24,8 @@ jobs:
 
       - name: Sync root docs into docs/
         run: |
-          cp CHANGELOG.md docs/changelog.md
-          cp BACKLOG.md docs/backlog.md
+          cp $GITHUB_WORKSPACE/CHANGELOG.md $GITHUB_WORKSPACE/docs/changelog.md
+          cp $GITHUB_WORKSPACE/BACKLOG.md $GITHUB_WORKSPACE/docs/backlog.md
 
       - name: Deploy to GitHub Pages
         run: mkdocs gh-deploy --force
