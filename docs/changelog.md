@@ -18,6 +18,9 @@ All notable changes to HOMEBASE are documented here.
 
 
 
+
+## v1.15.0
+
 - **Spreadsheet Analytics Agent** (`tools/analytics_agent.py`) — Gemini 2.5 Flash-Lite ingests CSV, XLSX, and ODS files (≤500 rows); pure-pandas profiling pass extracts column types, stats, value counts, and date ranges without sending raw data to the LLM; second Gemini call produces 3–8 ranked findings with normalized trend, severity, and confidence (clamped 0.0–1.0)
 - **Registry correlation** — third Gemini call cross-references analytics findings against the live registry; validates item IDs before any write; never raises on empty or malformed registry
 - **HITL review panel (analytics)** — per-item approval flow; proposed note pre-filled and editable; `update_item()` only called on explicit approve; no "approve all" shortcut; appends `[Analytics]` prefix to distinguish AI-proposed notes
@@ -32,6 +35,9 @@ All notable changes to HOMEBASE are documented here.
 
 
 
+
+## v1.14.0
+
 - **Document Intake Agent** (`tools/intake_agent.py`) — Gemini 2.0 Flash (multimodal) reads uploaded warranty documents, contractor invoices, work receipts, and inspection reports; extracts structured fields (date, contractor, cost, scope, item reference, notes); matches document to the closest registry item; proposes targeted field updates
 - **HITL review panel** — proposed updates surface in a structured review panel before any registry write occurs; user can select/override the target registry item, edit the description, adjust status, and approve or discard; `update_item()` is only called after explicit approval
 - **Multi-provider architecture** — introduces Gemini as a second LLM provider alongside Groq/Llama; Groq handles real-time orchestration and classification (speed-optimized), Gemini handles document understanding (multimodal-optimized); each model does what it does best, coordinated by the same LangGraph runtime
@@ -42,6 +48,9 @@ All notable changes to HOMEBASE are documented here.
 - **52 new tests** (`tests/test_intake_agent.py`) — covers input guards, all document types, confidence normalization, doc type normalization, field sanitization, item ID validation, markdown fence stripping, error handling, API key routing, and helper functions
 
 
+
+
+## v1.13.0
 
 - **Completeness Scorer** (`tools/completeness_agent.py`) — Groq/Llama 3.3 70B scores a free-text issue description against a per-category rubric (5 categories × 5 fields each); returns completeness score (0.0–1.0), list of missing/vague fields, and targeted follow-up questions
 - **Per-category rubrics** — HVAC, plumbing, electrical, appliance, and general each define 5 high-value fields (symptom, location, duration, severity signals, category-specific context); rubric drives both the system prompt and the scoring logic
