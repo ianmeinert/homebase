@@ -19,6 +19,8 @@ _Nothing currently in active development._
 
 > **Superseded by v1.15.0 Spreadsheet Analytics Agent.** Bulk import from tabular files remains a potential future extension if registry write-back from analytics findings needs to expand beyond notes.
 
+
+
 ## Architecture Notes
 
 ### Multi-Provider Strategy

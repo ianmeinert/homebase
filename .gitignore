@@ -58,3 +58,6 @@ desktop.ini
 # databases
 *.sqlite
 *.db
+
+# MkDocs build output
+site/
