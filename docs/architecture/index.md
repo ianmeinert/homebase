@@ -14,7 +14,7 @@ orchestrator  (trigger-based category filter + optional HU/HI-only mode)
             |
        [human input]       <- approve / defer HU/HI + LU/HI items / add notes
             |
-       synthesizer         <- Groq generates narrative, appends HITL decision record
+       synthesizer         <- Claude Sonnet or Groq generates narrative (runtime provider selection)
             |
            END
 ```
@@ -59,7 +59,8 @@ homebase/
 |   +-- db.py                     # SQLite connection manager, schema, auto-seed
 |   +-- registry_tools.py         # Registry CRUD backed by SQLite
 |   +-- history_tools.py          # Run history persistence backed by SQLite
-|   +-- llm_tools.py              # Groq-backed recommendation functions + confidence scoring
+|   +-- llm_providers.py          # Multi-provider abstraction (ChatAnthropic / ChatGroq selection, provider metadata)
+|   +-- llm_tools.py              # Subagent recommendation functions + confidence scoring
 |   +-- tracing.py                # LangSmith tracing init, status check, per-run metadata
 |   +-- update_agent.py           # NL registry update agent + intent router
 |   +-- chart_agent.py            # AI chart generation (two-tier: simple spec / complex figure dict)

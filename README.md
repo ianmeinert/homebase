@@ -1,8 +1,8 @@
 # HOMEBASE
 
-### Multi-Agent Home Management System — LangGraph + Groq + Gemini
+### Multi-Agent Home Management System — LangGraph + Groq + Gemini + Anthropic
 
-### v1.16.0 | [📖 Documentation](https://ianmeinert.github.io/homebase/)
+### v1.17.0 | [📖 Documentation](https://ianmeinert.github.io/homebase/)
 
 > **⚠ Proof of Concept — Not Production Ready**
 > HOMEBASE is a demonstration system built to illustrate multi-agent agentic AI architecture
@@ -12,10 +12,10 @@
 > without a full security review, compliance evaluation, and architectural assessment appropriate
 > to the target environment and regulatory context.
 
-A multi-agent system built with LangGraph and Groq (Llama 3.3 70B) demonstrating
-orchestrator/subagent delegation, parallel agent execution, live LLM reasoning,
-human-in-the-loop (HITL) checkpoints, and state persistence. The domain is home
-management; the architecture is enterprise-transferable.
+A multi-agent system built with LangGraph, Groq (Llama 3.3 70B), Gemini (2.5 Flash-Lite),
+and Anthropic (Claude Sonnet) demonstrating orchestrator/subagent delegation, parallel agent
+execution, multi-provider LLM routing, human-in-the-loop (HITL) checkpoints, and state
+persistence. The domain is home management; the architecture is enterprise-transferable.
 
 ---
 

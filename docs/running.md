@@ -92,7 +92,7 @@ uv run pytest -v
 uv run pytest tests/test_hitl.py -v
 ```
 
-**554 passing tests across 16 files.**
+**583 passing tests across 17 files.**
 
 | File | Tests | Covers |
 |---|---|---|
@@ -112,3 +112,4 @@ uv run pytest tests/test_hitl.py -v
 | `test_intake_agent.py` | 53 | Input guards, doc types, confidence, field sanitization, item ID validation |
 | `test_analytics_agent.py` | 55 | File dispatch, pandas profiling, LLM normalization, registry correlation |
 | `test_schema_agent.py` | 54 | is_mermaid, Mermaid parsing, tabular profiling, pandas 2.x StringDtype |
+| `test_llm_providers.py` | 29 | Provider detection, model factory (ChatAnthropic vs ChatGroq), subagent model, provider metadata |

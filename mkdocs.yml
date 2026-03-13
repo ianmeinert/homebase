@@ -1,6 +1,6 @@
 site_name: HOMEBASE
 
-site_description: Multi-Agent Home Management System — LangGraph + Groq + Gemini
+site_description: Multi-Agent Home Management System — LangGraph + Groq + Gemini + Anthropic
 site_url: https://ianmeinert.github.io/homebase/
 repo_url: https://github.com/ianmeinert/homebase
 repo_name: ianmeinert/homebase

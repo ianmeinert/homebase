@@ -77,15 +77,16 @@ across the interrupt, including the `groq_api_key` carried in state (not from en
 ## Synthesizer
 
 **Module:** `agents/orchestrator.py` — `synthesizer` node  
-**Model:** Groq / Llama 3.3 70B
+**Model:** Claude Sonnet (if `ANTHROPIC_API_KEY` set) or Groq / Llama 3.3 70B (fallback)
 
 After HITL decisions are submitted, the synthesizer node:
 
 1. Receives the merged subagent recommendations and HITL decisions
-2. Makes a single Groq call to generate the final narrative report
-3. Appends a structured HITL decision record (approved/deferred/noted)
-4. Writes the completed run to `run_history` in SQLite
-5. Terminates the graph
+2. Selects provider via `tools/llm_providers.get_synthesizer_model()` — Claude Sonnet when key is available, Groq otherwise
+3. Generates the final narrative report; appends `[Synthesized by <Provider>]` attribution footer
+4. Appends a structured HITL decision record (approved/deferred/noted)
+5. Writes the completed run to `run_history` in SQLite
+6. Terminates the graph
 
 The synthesizer narrative renders in the UI with highlighted item IDs and is available
 for PDF export via reportlab.
