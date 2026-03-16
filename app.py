@@ -364,6 +364,14 @@ def init_state():
         "pending_duplicate_matches":    [],    # DuplicateMatch list from last check
         "pending_duplicate_fields":     {},    # extracted fields from interpret_add
         "pending_duplicate_confirmed":  "",    # item_id of successfully force-added item
+        # Guided intake flow (v1.19.0)
+        "gi_step":          0,      # 0=idle, 1=describe, 2=duplicate, 3=triage, 4=review, 5=done
+        "gi_description":   "",     # raw description text
+        "gi_qp_result":     None,   # quadrant preview result
+        "gi_cs_result":     None,   # completeness result
+        "gi_dupes":         [],     # duplicate matches
+        "gi_fields":        {},     # interpret_add extracted fields
+        "gi_added_id":      "",     # item ID after successful write
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -1683,6 +1691,332 @@ with main_tabs[0]:
                         st.session_state.schema_mermaid_text = ""
                         st.rerun()
 
+
+
+    # -- Guided Intake Flow (v1.19.0) ---------------------------------------------
+    with st.expander("📋  Submit New Issue", expanded=False):
+        st.caption("Guided intake — mirrors the RMA submitter checklist with AI-assisted triage and HITL approval.")
+
+        _gi_api_key    = st.session_state.api_key.strip() or None
+        _gi_disabled   = not bool(_gi_api_key)
+        _gi_step       = st.session_state.gi_step
+
+        # ── Step indicator ──────────────────────────────────────────────────────
+        _gi_steps = ["Describe", "Duplicate Check", "Triage", "Review & Approve", "Done"]
+        _gi_cols  = st.columns(5)
+        for _si, (_scol, _slabel) in enumerate(zip(_gi_cols, _gi_steps), 1):
+            with _scol:
+                if _gi_step == 0:
+                    _sc = "#484f58"
+                elif _si < _gi_step:
+                    _sc = "#56d364"
+                elif _si == _gi_step:
+                    _sc = "#f5a623"
+                else:
+                    _sc = "#484f58"
+                st.markdown(
+                    f"<div style='text-align:center;font-family:IBM Plex Mono,monospace;"
+                    f"font-size:10px;color:{_sc};padding:4px 0;border-bottom:2px solid {_sc};'>"
+                    f"{_si}. {_slabel}</div>",
+                    unsafe_allow_html=True,
+                )
+        st.markdown("<div style='margin-top:12px;'></div>", unsafe_allow_html=True)
+
+        # ── Step 1: Describe ────────────────────────────────────────────────────
+        if _gi_step in (0, 1):
+            st.markdown(
+                "<p style='font-family:IBM Plex Mono,monospace;font-size:11px;"
+                "color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;'>"
+                "Step 1 — Describe the Issue</p>",
+                unsafe_allow_html=True,
+            )
+            _gi_desc = st.text_area(
+                "Issue description",
+                value=st.session_state.gi_description,
+                placeholder='e.g. "HVAC air filter - not changed in 6 weeks, system running warm"',
+                height=80,
+                label_visibility="collapsed",
+                disabled=_gi_disabled,
+                key="gi_desc_input",
+            )
+
+            if _gi_desc and _gi_desc != st.session_state.gi_description:
+                st.session_state.gi_description = _gi_desc
+                # Run quadrant preview + completeness inline
+                from tools.quadrant_preview import predict_quadrant
+                from tools.completeness_agent import score_completeness
+                _gi_qp = predict_quadrant(_gi_desc, api_key=_gi_api_key)
+                st.session_state.gi_qp_result = _gi_qp
+                if _gi_qp and not _gi_qp.get("error") and _gi_qp.get("quadrant"):
+                    _gi_cat = _gi_qp.get("category", "general")
+                    _gi_cs = score_completeness(_gi_desc, _gi_cat, api_key=_gi_api_key)
+                    st.session_state.gi_cs_result = _gi_cs
+
+            # Show preview inline
+            _gi_qp = st.session_state.gi_qp_result
+            if _gi_qp and not _gi_qp.get("error") and _gi_qp.get("quadrant"):
+                _giq      = _gi_qp["quadrant"]
+                _gic      = int(_gi_qp["confidence"] * 100)
+                _gir      = _gi_qp.get("rationale", "")
+                _gi_badge_color = {"HU/HI": "#ff6b6b", "HU/LI": "#f5a623", "LU/HI": "#79c0ff", "LU/LI": "#8b949e"}.get(_giq, "#8b949e")
+                st.markdown(
+                    f"<div style='display:flex;align-items:center;gap:10px;margin:8px 0 4px 0;'>"
+                    f"<span style='font-family:IBM Plex Mono,monospace;font-size:11px;"
+                    f"color:{_gi_badge_color};font-weight:600;padding:2px 8px;border:1px solid {_gi_badge_color};"
+                    f"border-radius:4px;'>{_giq}</span>"
+                    f"<span style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#8b949e;'>{_gic}% confidence</span>"
+                    f"</div>"
+                    f"<p style='color:#8b949e;font-size:12px;font-style:italic;margin:2px 0 8px 0;'>{_gir}</p>",
+                    unsafe_allow_html=True,
+                )
+                _gi_cs = st.session_state.gi_cs_result
+                if _gi_cs and not _gi_cs.get("error"):
+                    _gi_cs_pct = int(_gi_cs["score"] * 100)
+                    _gi_cs_color = "#56d364" if _gi_cs_pct >= 80 else "#fbbf24" if _gi_cs_pct >= 50 else "#ff6b6b"
+                    st.markdown(
+                        f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:4px;'>"
+                        f"<span style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#484f58;'>Completeness</span>"
+                        f"<div style='flex:1;background:#21262d;border-radius:4px;height:5px;'>"
+                        f"<div style='width:{_gi_cs_pct}%;background:{_gi_cs_color};height:5px;border-radius:4px;'></div></div>"
+                        f"<span style='font-family:IBM Plex Mono,monospace;font-size:11px;color:{_gi_cs_color};'>{_gi_cs_pct}%</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    for _giq_num, _giq_q in enumerate(_gi_cs.get("questions", [])[:3], 1):
+                        st.markdown(
+                            f"<p style='color:#8b949e;font-size:12px;margin:2px 0;'>"
+                            f"<span style='color:#484f58;font-family:IBM Plex Mono,monospace;'>{_giq_num}.</span> {_giq_q}</p>",
+                            unsafe_allow_html=True,
+                        )
+
+            _gi_submit_col, _ = st.columns([2, 8])
+            with _gi_submit_col:
+                if st.button("→ Check Duplicates", key="gi_step1_btn",
+                             disabled=_gi_disabled or not st.session_state.gi_description.strip(),
+                             type="primary"):
+                    st.session_state.gi_step = 2
+                    st.rerun()
+
+        # ── Step 2: Duplicate Check ─────────────────────────────────────────────
+        elif _gi_step == 2:
+            st.markdown(
+                "<p style='font-family:IBM Plex Mono,monospace;font-size:11px;"
+                "color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;'>"
+                "Step 2 — Duplicate Check</p>",
+                unsafe_allow_html=True,
+            )
+            from tools.update_agent import interpret_add
+            from tools.duplicate_detector import check_duplicates
+
+            if not st.session_state.gi_fields:
+                with st.spinner("Extracting issue details..."):
+                    _gi_fields = interpret_add(st.session_state.gi_description, api_key=_gi_api_key)
+                if "_error" not in _gi_fields:
+                    st.session_state.gi_fields = _gi_fields
+                    _gi_dupes = check_duplicates(
+                        title=_gi_fields["title"],
+                        description=_gi_fields["description"],
+                    )
+                    st.session_state.gi_dupes = _gi_dupes
+                else:
+                    st.error(f"Could not parse description: {_gi_fields.get('_error')}")
+
+            _gi_fields = st.session_state.gi_fields
+            _gi_dupes  = st.session_state.gi_dupes
+
+            if _gi_fields:
+                st.markdown(
+                    f"<p style='color:#8b949e;font-size:12px;margin-bottom:8px;'>"
+                    f"Proposed: <span style='color:#e6edf3;font-family:IBM Plex Mono,monospace;'>"
+                    f"{_gi_fields.get('title','')}</span></p>",
+                    unsafe_allow_html=True,
+                )
+
+                if _gi_dupes:
+                    st.markdown(
+                        "<div style='background:#1a1400;border:1px solid #f5a623;border-radius:6px;"
+                        "padding:10px 14px;margin-bottom:10px;'>"
+                        "<p style='color:#f5a623;font-weight:600;font-family:IBM Plex Mono,monospace;"
+                        "font-size:12px;margin:0 0 6px 0;'>⚠ Similar items found in registry</p>"
+                        + "".join(
+                            f"<div style='margin:3px 0;padding:4px 8px;background:#0d1117;border-radius:4px;'>"
+                            f"<span style='color:#79c0ff;font-family:IBM Plex Mono,monospace;'>[{m['item_id']}]</span> "
+                            f"<span style='color:#e6edf3;'>{m['title']}</span> "
+                            f"<span style='color:#f5a623;font-size:10px;'>({m['score_pct']}% match)</span></div>"
+                            for m in _gi_dupes
+                        )
+                        + "<p style='color:#8b949e;font-size:11px;margin:8px 0 0 0;'>"
+                        "Review the items above. If none match your issue, proceed.</p></div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        "<div style='background:#0d1f0d;border:1px solid #238636;border-radius:6px;"
+                        "padding:10px 14px;margin-bottom:10px;'>"
+                        "<p style='color:#56d364;font-family:IBM Plex Mono,monospace;font-size:12px;margin:0;'>"
+                        "✓ No duplicates found — this appears to be a new issue.</p></div>",
+                        unsafe_allow_html=True,
+                    )
+
+                _gi_d1, _gi_d2, _ = st.columns([2, 2, 6])
+                with _gi_d1:
+                    if st.button("→ Continue", key="gi_step2_proceed", type="primary"):
+                        st.session_state.gi_step = 3
+                        st.rerun()
+                with _gi_d2:
+                    if st.button("← Back", key="gi_step2_back"):
+                        st.session_state.gi_step = 1
+                        st.session_state.gi_fields = {}
+                        st.session_state.gi_dupes = []
+                        st.rerun()
+
+        # ── Step 3: Triage ──────────────────────────────────────────────────────
+        elif _gi_step == 3:
+            st.markdown(
+                "<p style='font-family:IBM Plex Mono,monospace;font-size:11px;"
+                "color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;'>"
+                "Step 3 — Triage</p>",
+                unsafe_allow_html=True,
+            )
+            _gi_qp = st.session_state.gi_qp_result
+            _gi_fields = st.session_state.gi_fields
+
+            _gi_q = _gi_qp.get("quadrant", "LU/LI") if _gi_qp else "LU/LI"
+            _gi_triage_map = {
+                "HU/HI": ("#ff6b6b", "High Priority — Immediate Action Required",
+                           "This issue will be escalated for HITL review. Action plan generated after approval."),
+                "HU/LI": ("#f5a623", "Schedule Soon",
+                           "This issue has high urgency but lower impact. Schedule within the week."),
+                "LU/HI": ("#79c0ff", "Contingency — Plan Ahead",
+                           "Low urgency but significant consequences if ignored. Build a contingency plan."),
+                "LU/LI": ("#8b949e", "Low Priority — Defer or Submit as Idea",
+                           "This issue can be deferred. Consider logging as a future enhancement."),
+            }
+            _gi_t_color, _gi_t_label, _gi_t_desc = _gi_triage_map.get(_gi_q, _gi_triage_map["LU/LI"])
+
+            st.markdown(
+                f"<div style='background:#0d1117;border:1px solid {_gi_t_color};border-radius:6px;"
+                f"padding:14px 16px;margin-bottom:12px;'>"
+                f"<div style='display:flex;align-items:center;gap:12px;margin-bottom:8px;'>"
+                f"<span style='font-family:IBM Plex Mono,monospace;font-size:12px;color:{_gi_t_color};"
+                f"font-weight:600;padding:2px 10px;border:1px solid {_gi_t_color};border-radius:4px;'>{_gi_q}</span>"
+                f"<span style='color:#e6edf3;font-size:13px;font-weight:600;'>{_gi_t_label}</span></div>"
+                f"<p style='color:#8b949e;font-size:12px;margin:0;'>{_gi_t_desc}</p>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Show extracted fields summary
+            st.markdown(
+                "<p style='font-family:IBM Plex Mono,monospace;font-size:11px;color:#484f58;"
+                "text-transform:uppercase;margin-bottom:6px;'>Extracted Details</p>",
+                unsafe_allow_html=True,
+            )
+            for _gf_k, _gf_v in [
+                ("Title", _gi_fields.get("title", "")),
+                ("Category", _gi_fields.get("category", "")),
+                ("Urgency", _gi_fields.get("urgency", 0.5)),
+                ("Impact", _gi_fields.get("impact", 0.5)),
+            ]:
+                st.markdown(
+                    f"<div style='display:flex;gap:12px;margin:2px 0;'>"
+                    f"<span style='color:#484f58;font-family:IBM Plex Mono,monospace;font-size:11px;"
+                    f"min-width:70px;'>{_gf_k}</span>"
+                    f"<span style='color:#e6edf3;font-size:12px;'>{_gf_v}</span></div>",
+                    unsafe_allow_html=True,
+                )
+
+            _gi_t1, _gi_t2, _ = st.columns([2, 2, 6])
+            with _gi_t1:
+                if st.button("→ Review & Approve", key="gi_step3_proceed", type="primary"):
+                    st.session_state.gi_step = 4
+                    st.rerun()
+            with _gi_t2:
+                if st.button("← Back", key="gi_step3_back"):
+                    st.session_state.gi_step = 2
+                    st.rerun()
+
+        # ── Step 4: Review & Approve ────────────────────────────────────────────
+        elif _gi_step == 4:
+            st.markdown(
+                "<p style='font-family:IBM Plex Mono,monospace;font-size:11px;"
+                "color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;'>"
+                "Step 4 — Review & Approve</p>",
+                unsafe_allow_html=True,
+            )
+            _gi_fields = st.session_state.gi_fields
+
+            st.markdown(
+                "<p style='color:#8b949e;font-size:12px;margin-bottom:10px;'>"
+                "Review and edit the extracted fields before submitting. "
+                "Nothing is written to the registry until you click Approve.</p>",
+                unsafe_allow_html=True,
+            )
+
+            _gi_title_edit = st.text_input(
+                "Title", value=_gi_fields.get("title", ""), key="gi_title_edit"
+            )
+            _gi_desc_edit = st.text_area(
+                "Description", value=_gi_fields.get("description", ""),
+                height=80, key="gi_desc_edit"
+            )
+
+            _gi_r1, _gi_r2, _gi_r3, _ = st.columns([2, 2, 2, 4])
+            with _gi_r1:
+                if st.button("✅ Approve & Submit", key="gi_approve_btn", type="primary"):
+                    from tools.registry_tools import add_item
+                    _gi_new = add_item(
+                        category=_gi_fields.get("category", "general"),
+                        title=_gi_title_edit.strip() or _gi_fields.get("title", ""),
+                        description=_gi_desc_edit.strip(),
+                        urgency=_gi_fields.get("urgency", 0.5),
+                        impact=_gi_fields.get("impact", 0.5),
+                    )
+                    st.session_state.gi_added_id = _gi_new["id"]
+                    st.session_state.gi_step = 5
+                    st.rerun()
+            with _gi_r2:
+                if st.button("✕ Reject", key="gi_reject_btn"):
+                    for _k in ("gi_step","gi_description","gi_qp_result","gi_cs_result",
+                               "gi_dupes","gi_fields","gi_added_id"):
+                        st.session_state[_k] = 0 if _k == "gi_step" else ([] if _k == "gi_dupes" else ("" if _k not in ("gi_qp_result","gi_cs_result","gi_fields") else ({} if _k == "gi_fields" else None)))
+                    st.rerun()
+            with _gi_r3:
+                if st.button("← Back", key="gi_step4_back"):
+                    st.session_state.gi_step = 3
+                    st.rerun()
+
+        # ── Step 5: Done ────────────────────────────────────────────────────────
+        elif _gi_step == 5:
+            _gi_added = st.session_state.gi_added_id
+            st.markdown(
+                f"<div style='background:#0d1f0d;border:1px solid #238636;border-radius:6px;"
+                f"padding:16px 20px;text-align:center;'>"
+                f"<p style='color:#56d364;font-family:IBM Plex Mono,monospace;font-size:16px;"
+                f"font-weight:600;margin:0 0 6px 0;'>✓ Submitted as [{_gi_added}]</p>"
+                f"<p style='color:#8b949e;font-size:12px;margin:0;'>"
+                f"Item added to registry. Run a full assessment to generate recommendations.</p>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            _gi_done1, _gi_done2, _ = st.columns([3, 3, 4])
+            with _gi_done1:
+                if st.button("▶ Run Full Assessment", key="gi_run_btn", type="primary"):
+                    st.session_state.pending_input = "full home assessment"
+                    for _k in ("gi_step","gi_description","gi_qp_result","gi_cs_result",
+                               "gi_dupes","gi_fields","gi_added_id"):
+                        st.session_state[_k] = 0 if _k == "gi_step" else ([] if _k == "gi_dupes" else ("" if _k not in ("gi_qp_result","gi_cs_result","gi_fields") else ({} if _k == "gi_fields" else None)))
+                    st.rerun()
+            with _gi_done2:
+                if st.button("+ Submit Another", key="gi_another_btn"):
+                    for _k in ("gi_step","gi_description","gi_qp_result","gi_cs_result",
+                               "gi_dupes","gi_fields","gi_added_id"):
+                        st.session_state[_k] = 0 if _k == "gi_step" else ([] if _k == "gi_dupes" else ("" if _k not in ("gi_qp_result","gi_cs_result","gi_fields") else ({} if _k == "gi_fields" else None)))
+                    st.rerun()
+
+        if _gi_disabled:
+            st.caption("⚠ Groq API key required — add it in the sidebar to enable guided intake.")
+    # -- End Guided Intake ---------------------------------------------------------
 
     # -----------------------------------------------------------------------------
 
