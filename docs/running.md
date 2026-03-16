@@ -38,6 +38,7 @@ uv run streamlit run app.py
 | **Document Intake** | `⬡ Document Intake` expander | Upload PDF/image; Gemini extracts structured fields; HITL required before registry write |
 | **Spreadsheet Analytics** | `📊 Spreadsheet Analytics` expander | Upload CSV/XLSX/ODS; pandas profiling + Gemini findings; HITL registry correlation |
 | **Schema Metric Discovery** | `🔬 Schema Metric Discovery` expander | Upload tabular schema or paste Mermaid ERD; Gemini surfaces metrics, derived fields, gaps, quality observations |
+| **Guided Intake (Submit New Issue)** | `📋 Submit New Issue` expander | 5-step HITL intake flow: Describe → Duplicate Check → Triage → Review & Approve → Done; mirrors RMA submitter checklist |
 
 ---
 
@@ -92,7 +93,7 @@ uv run pytest -v
 uv run pytest tests/test_hitl.py -v
 ```
 
-**583 passing tests across 17 files.**
+**619 passing tests across 18 files.**
 
 | File | Tests | Covers |
 |---|---|---|
@@ -113,3 +114,4 @@ uv run pytest tests/test_hitl.py -v
 | `test_analytics_agent.py` | 55 | File dispatch, pandas profiling, LLM normalization, registry correlation |
 | `test_schema_agent.py` | 54 | is_mermaid, Mermaid parsing, tabular profiling, pandas 2.x StringDtype |
 | `test_llm_providers.py` | 29 | Provider detection, model factory (ChatAnthropic vs ChatGroq), subagent model, provider metadata |
+| `test_duplicate_detector.py` | 36 | TF-IDF dual-channel scoring, threshold behavior, status filter, `has_duplicates`, `top_match`, edge cases |

@@ -2,7 +2,7 @@
 
 **Multi-Agent Home Management System — LangGraph + Groq + Gemini + Anthropic**
 
-`v1.17.0`
+`v1.19.0`
 
 !!! warning "Proof of Concept — Not Production Ready"
     HOMEBASE is a demonstration system built to illustrate multi-agent agentic AI architecture

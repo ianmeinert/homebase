@@ -28,7 +28,8 @@ agent behaviors are directly transferable to enterprise workloads.
 | Spreadsheet analytics agent | Tabular data analysis with registry correlation |
 | Schema metric discovery | Schema-aware agent for metric potential and gap analysis |
 | Multi-provider architecture | Provider-agnostic deployment for constrained environments (FedRAMP, ATO) |
-| TF-IDF duplicate detection *(backlog)* | Deduplication pipeline for intake queues (RMA, ServiceNow, Jira) |
+| TF-IDF duplicate detection | Deduplication pipeline for intake queues (RMA, ServiceNow, Jira) |
+| Guided intake flow | Structured ticket submission workflow with AI triage and HITL approval gate (mirrors VA RMA Submitter Checklist) |
 
 ---
 

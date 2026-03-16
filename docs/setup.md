@@ -101,6 +101,7 @@ Tracing status appears in the sidebar. Each run produces a full trace with node 
 | `langchain-core>=0.3.0` | LangChain base primitives |
 | `langchain-groq>=0.2.0` | Groq/Llama model integration |
 | `langchain-anthropic>=0.3.0` | Anthropic/Claude model integration |
+| `scikit-learn>=1.3.0` | TF-IDF duplicate detection |
 | `langchain-google-genai>=2.0.0` | LangChain Google Generative AI integration |
 | `google-genai>=1.0.0` | Google Generative AI SDK (Gemini) |
 | `openpyxl>=3.1.0` | XLSX read/write support for pandas |

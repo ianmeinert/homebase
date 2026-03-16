@@ -60,6 +60,7 @@ homebase/
 |   +-- registry_tools.py         # Registry CRUD backed by SQLite
 |   +-- history_tools.py          # Run history persistence backed by SQLite
 |   +-- llm_providers.py          # Multi-provider abstraction (ChatAnthropic / ChatGroq selection, provider metadata)
+|   +-- duplicate_detector.py     # TF-IDF dual-channel cosine similarity duplicate detection
 |   +-- llm_tools.py              # Subagent recommendation functions + confidence scoring
 |   +-- tracing.py                # LangSmith tracing init, status check, per-run metadata
 |   +-- update_agent.py           # NL registry update agent + intent router
@@ -93,4 +94,5 @@ homebase/
     +-- test_intake_agent.py
     +-- test_analytics_agent.py
     +-- test_schema_agent.py
+    +-- test_duplicate_detector.py
 ```

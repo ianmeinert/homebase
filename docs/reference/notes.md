@@ -60,6 +60,19 @@ model binding, not changes to the graph topology, state schema, or HITL flow.
 
 ---
 
+
+## Duplicate Detection Notes
+
+`tools/duplicate_detector.py` uses dual-channel TF-IDF cosine similarity:
+
+- **Channel 1** — full text (title + description) vs existing registry full texts
+- **Channel 2** — title only vs existing registry titles
+- **Final score** — `max(channel1, channel2)` per item — catches paraphrased titles even when descriptions differ
+
+Default threshold is `0.55`. Closed items are excluded from comparison by default (`status_filter=["open", "in_progress"]`). `sklearn` is a required dependency (`scikit-learn>=1.3.0`).
+
+The detector is called by `execute_add()` before any DB write. If `sklearn` is not installed it fails silently and allows the add to proceed.
+
 ## Auto-Migration
 
 On startup, HOMEBASE checks for databases created before v1.10.0 (which stored

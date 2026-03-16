@@ -4,16 +4,31 @@ All notable changes to HOMEBASE are documented here.
 
 ---
 
+## v1.19.0
+
+- **Guided Intake Flow** (`app.py` — `📋 Submit New Issue` expander) — 5-step HITL intake workflow that mirrors the VA RMA submitter checklist; all intelligence reuses existing agents with no new backend code
+- **Step 1 — Describe:** Free-text description with live quadrant preview (confidence badge + rationale) and completeness scoring (score bar + numbered follow-up questions) firing as the user types; deduped to avoid redundant API calls
+- **Step 2 — Duplicate Check:** `interpret_add()` extracts structured fields, then `check_duplicates()` runs TF-IDF against the registry; green "No duplicates found" or amber warning panel with all matches and similarity scores; user can review and proceed or go back
+- **Step 3 — Triage:** Predicted quadrant rendered as a colored disposition badge (`HU/HI` → Immediate Action, `HU/LI` → Schedule Soon, `LU/HI` → Contingency, `LU/LI` → Defer/Idea); extracted fields (title, category, urgency, impact) displayed for review
+- **Step 4 — Review & Approve (HITL):** Editable title and description fields; `✅ Approve & Submit` is the only path to registry write; `✕ Reject` discards without writing; `← Back` navigation at every step
+- **Step 5 — Done:** Green confirmation with assigned item ID; `▶ Run Full Assessment` loads trigger into command field; `+ Submit Another` resets flow
+- **Step indicator:** 5-column progress bar at top of expander — grey (future), amber (current), green (complete)
+- **Enterprise analog:** Direct mapping to VA RMA Submitter Checklist — duplicate search (Step 2), triage criteria (Step 3), SBAR structured review (Step 4), HITL approval gate before any write (Step 4); demonstrates the "automate and AI this" vision with human always in the loop
+- **No new tests** — guided intake is a UI orchestration layer over existing agents; all underlying agent logic already covered by existing test suite (619 passing)
+
+
+---
+
 ## v1.18.0
 
-- **TF-IDF Duplicate Detection** (`tools/duplicate_detector.py`) — deterministic cosine similarity check against existing open registry items before any new item is written; `TfidfVectorizer` with bigram support, sublinear TF normalization, and English stopword removal fits on the live registry corpus at call time; configurable similarity threshold (default 0.75); closed items excluded from comparison by default via `status_filter`
+- **TF-IDF Duplicate Detection** (`tools/duplicate_detector.py`) — deterministic cosine similarity check against existing open registry items before any new item is written; `TfidfVectorizer` with bigram support, sublinear TF normalization, and English stopword removal fits on the live registry corpus at call time; configurable similarity threshold (default 0.55, dual-channel title+full-text); closed items excluded from comparison by default via `status_filter`
 - **`check_duplicates(title, description, threshold, status_filter)`** — returns a ranked `list[DuplicateMatch]` (item_id, title, category, status, score, score_pct); `has_duplicates()` and `top_match()` convenience wrappers provided
 - **`execute_add()` integration** — duplicate check fires after `interpret_add()` extracts fields, before any `add_item()` DB write; returns `{_duplicates: [...], _fields: {...}}` when matches found; `force=True` parameter bypasses the check for explicit user override
 - **`execute_command()` extended** — accepts `force_add` and `duplicate_threshold` params; result dict gains `"duplicates"` and `"pending_fields"` keys; non-add intents always return `None` for these keys
 - **Duplicate warning UI** — amber-bordered panel surfaces candidate matches with item ID, title, and similarity percentage; two-button HITL: "➕ Add anyway" re-calls with `force_add=True`, "✕ Cancel" clears pending state; same HITL philosophy as document intake and analytics agents
 - **`scikit-learn>=1.3.0`** added to `pyproject.toml` dependencies
 - **Enterprise analog:** deduplication pipeline for intake queues (RMA, ServiceNow, Jira) — mirrors the VA RMA submitter checklist step "search for a duplicate or similar request" before creating a new ticket
-- **33 new tests** (`tests/test_duplicate_detector.py`) — covers `_build_corpus_text`, `check_duplicates` (empty registry, exact match, unrelated item, score ranking, result fields, empty candidate), threshold behavior (default, low, high, 0.0, 1.0, custom), status filter (closed excluded by default, in_progress included, custom filter, empty corpus after filter), `has_duplicates`, `top_match`, and edge cases (single word, long description, special characters, single-item registry); total suite: 616 passing
+- **36 new tests** (`tests/test_duplicate_detector.py`) — covers `_build_corpus_text`, `check_duplicates` (empty registry, exact match, unrelated item, score ranking, result fields, empty candidate), threshold behavior (default, low, high, 0.0, 1.0, custom), status filter (closed excluded by default, in_progress included, custom filter, empty corpus after filter), `has_duplicates`, `top_match`, and edge cases (single word, long description, special characters, single-item registry); total suite: 619 passing
 
 
 ---

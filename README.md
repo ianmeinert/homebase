@@ -2,7 +2,7 @@
 
 ### Multi-Agent Home Management System — LangGraph + Groq + Gemini + Anthropic
 
-### v1.17.0 | [📖 Documentation](https://ianmeinert.github.io/homebase/)
+### v1.19.0 | [📖 Documentation](https://ianmeinert.github.io/homebase/)
 
 > **⚠ Proof of Concept — Not Production Ready**
 > HOMEBASE is a demonstration system built to illustrate multi-agent agentic AI architecture
@@ -66,7 +66,7 @@ Full architecture docs: [Architecture Overview](https://ianmeinert.github.io/hom
 uv run pytest
 ```
 
-No API key required — all LLM calls are mocked. **583 passing tests** across 17 files.
+No API key required — all LLM calls are mocked. **619 passing tests** across 18 files.
 
 ---
 
