@@ -37,6 +37,17 @@ The Groq-backed features (orchestrator, RCA, 5 Whys, charts, etc.) work without 
 
 ---
 
+## Anthropic API Key (Claude Synthesizer)
+
+The synthesizer node uses Claude Sonnet when `ANTHROPIC_API_KEY` is set. Enter it in the
+Streamlit sidebar when prompted (`sk-ant-...`).
+
+Get a key at: [https://console.anthropic.com](https://console.anthropic.com)
+
+When absent, the synthesizer falls back to Groq/Llama automatically — no configuration change required.
+
+---
+
 ## Database
 
 `data/homebase.db` is created and seeded automatically on first run. No migration step required.
@@ -89,6 +100,8 @@ Tracing status appears in the sidebar. Each run produces a full trace with node 
 | `langgraph>=1.0.10` | Agent graph, state management, HITL checkpointing |
 | `langchain-core>=0.3.0` | LangChain base primitives |
 | `langchain-groq>=0.2.0` | Groq/Llama model integration |
+| `langchain-anthropic>=0.3.0` | Anthropic/Claude model integration |
+| `langchain-google-genai>=2.0.0` | LangChain Google Generative AI integration |
 | `google-genai>=1.0.0` | Google Generative AI SDK (Gemini) |
 | `openpyxl>=3.1.0` | XLSX read/write support for pandas |
 | `odfpy>=1.4.0` | ODS support for pandas |

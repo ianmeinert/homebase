@@ -61,3 +61,6 @@ desktop.ini
 
 # MkDocs build output
 site/
+
+# Dev scripts
+clear_cache.ps1

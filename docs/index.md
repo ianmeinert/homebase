@@ -16,9 +16,9 @@
 
 ## What is HOMEBASE?
 
-HOMEBASE is a multi-agent system built with LangGraph and Groq (Llama 3.3 70B) that demonstrates
-orchestrator/subagent delegation, parallel agent execution, live LLM reasoning, human-in-the-loop
-(HITL) checkpoints, and state persistence.
+HOMEBASE is a multi-agent system built with LangGraph, Groq (Llama 3.3 70B), Gemini (2.5 Flash-Lite),
+and Anthropic (Claude Sonnet) that demonstrates orchestrator/subagent delegation, parallel agent
+execution, multi-provider LLM routing, human-in-the-loop (HITL) checkpoints, and state persistence.
 
 The domain is **home management**. The architecture is **enterprise-transferable**.
 

@@ -4,6 +4,20 @@ All notable changes to HOMEBASE are documented here.
 
 ---
 
+## v1.18.0
+
+- **TF-IDF Duplicate Detection** (`tools/duplicate_detector.py`) — deterministic cosine similarity check against existing open registry items before any new item is written; `TfidfVectorizer` with bigram support, sublinear TF normalization, and English stopword removal fits on the live registry corpus at call time; configurable similarity threshold (default 0.75); closed items excluded from comparison by default via `status_filter`
+- **`check_duplicates(title, description, threshold, status_filter)`** — returns a ranked `list[DuplicateMatch]` (item_id, title, category, status, score, score_pct); `has_duplicates()` and `top_match()` convenience wrappers provided
+- **`execute_add()` integration** — duplicate check fires after `interpret_add()` extracts fields, before any `add_item()` DB write; returns `{_duplicates: [...], _fields: {...}}` when matches found; `force=True` parameter bypasses the check for explicit user override
+- **`execute_command()` extended** — accepts `force_add` and `duplicate_threshold` params; result dict gains `"duplicates"` and `"pending_fields"` keys; non-add intents always return `None` for these keys
+- **Duplicate warning UI** — amber-bordered panel surfaces candidate matches with item ID, title, and similarity percentage; two-button HITL: "➕ Add anyway" re-calls with `force_add=True`, "✕ Cancel" clears pending state; same HITL philosophy as document intake and analytics agents
+- **`scikit-learn>=1.3.0`** added to `pyproject.toml` dependencies
+- **Enterprise analog:** deduplication pipeline for intake queues (RMA, ServiceNow, Jira) — mirrors the VA RMA submitter checklist step "search for a duplicate or similar request" before creating a new ticket
+- **33 new tests** (`tests/test_duplicate_detector.py`) — covers `_build_corpus_text`, `check_duplicates` (empty registry, exact match, unrelated item, score ranking, result fields, empty candidate), threshold behavior (default, low, high, 0.0, 1.0, custom), status filter (closed excluded by default, in_progress included, custom filter, empty corpus after filter), `has_duplicates`, `top_match`, and edge cases (single word, long description, special characters, single-item registry); total suite: 616 passing
+
+
+---
+
 ## v1.17.0
 
 - **Multi-provider LLM architecture** (`tools/llm_providers.py`) — provider abstraction layer supporting Groq/Llama (subagents) and Anthropic/Claude Sonnet (synthesizer); `active_provider()` detects `ANTHROPIC_API_KEY` from env or state at runtime; `get_synthesizer_model()` returns `ChatAnthropic` when a key is present, falls back to `ChatGroq` transparently; `get_subagent_model()` always uses Groq (parallel batch calls remain on the cheaper, higher-throughput provider); `provider_meta()` returns display label, model string, vendor, and brand color for sidebar rendering
@@ -13,6 +27,7 @@ All notable changes to HOMEBASE are documented here.
 - **Synthesizer message log** — provider selection logged at runtime: `[Synthesizer] Provider selected: CLAUDE — calling for synthesis narrative...` or `GROQ`
 - **Sidebar provider status** — Anthropic API key input added below Google key; active state shown in purple (`OK Claude synthesizer active`); inactive shown as dim (`-- Claude key (synthesizer — optional)`); SYSTEM panel shows live synthesizer provider with brand color (`Claude Sonnet` in purple, `Llama 3.3 70B` in green)
 - **29 new tests** (`tests/test_llm_providers.py`) — covers `active_provider()` (no key, empty string, whitespace, direct arg, env var), `is_claude_active()`, `get_synthesizer_model()` (returns `ChatAnthropic` vs `ChatGroq`, correct model names, key priority), `get_subagent_model()` (always Groq), `provider_meta()` (label, color, vendor per provider), and model constant assertions; total suite: 583 passing
+
 
 ---
 
@@ -28,6 +43,9 @@ All notable changes to HOMEBASE are documented here.
 - **Proof of concept notice** — POC disclaimer added to `README.md` and `homebase_erd.md` clarifying that HOMEBASE has not undergone formal code review, security assessment, penetration testing, or production hardening
 - **54 new tests** (`tests/test_schema_agent.py`) — covers `is_mermaid`, Mermaid type inference, `parse_mermaid` (entity extraction, field types, relationship context), `parse_tabular` (CSV/XLSX, 500-row cap, type detection, pandas 2.x StringDtype), and `discover_metrics` (mock LLM, confidence clamping, severity normalization, markdown fence stripping, truncation guard, multi-source input); total suite: 554 passing
 
+
+
+
 ## v1.15.0
 
 - **Spreadsheet Analytics Agent** (`tools/analytics_agent.py`) — Gemini 2.5 Flash-Lite ingests CSV, XLSX, and ODS files (≤500 rows); pure-pandas profiling pass extracts column types, stats, value counts, and date ranges without sending raw data to the LLM; second Gemini call produces 3–8 ranked findings with normalized trend, severity, and confidence (clamped 0.0–1.0)
@@ -42,6 +60,9 @@ All notable changes to HOMEBASE are documented here.
 - **Bug fixes (folded from post-v1.14.0)** — intent router: whys/rca keywords take priority over item ID presence; `run_whys()` accepts `item_id` for item-scoped analysis; `item_ids` normalized to `list[str]` in both RCA execution paths; defensive `str()` cast at cluster ID join in `app.py`
 - **55 new tests** (`tests/test_analytics_agent.py`) — covers `load_file` dispatch, `profile_dataframe` (truncation, type detection, stats, nulls), `analyze_spreadsheet` (mock LLM, normalization, error handling), `correlate_findings` (empty registry guard, invalid ID filter, result merging); total suite: 485 passing
 
+
+
+
 ## v1.14.0
 
 - **Document Intake Agent** (`tools/intake_agent.py`) — Gemini 2.0 Flash (multimodal) reads uploaded warranty documents, contractor invoices, work receipts, and inspection reports; extracts structured fields (date, contractor, cost, scope, item reference, notes); matches document to the closest registry item; proposes targeted field updates
@@ -52,6 +73,9 @@ All notable changes to HOMEBASE are documented here.
 - **Google API key integration** — separate sidebar input (`AIza...`) for the Gemini key; displayed as muted hint when unset; does not block Groq-backed features
 - **`⬡ Document Intake` expander** — wired into Dashboard tab alongside Predictive Quadrant Preview and Completeness Scorer; `st.file_uploader` accepts PDF, PNG, JPG, JPEG, WEBP; form wrapper prevents lifecycle race conditions
 - **52 new tests** (`tests/test_intake_agent.py`) — covers input guards, all document types, confidence normalization, doc type normalization, field sanitization, item ID validation, markdown fence stripping, error handling, API key routing, and helper functions
+
+
+
 
 ## v1.13.0
 

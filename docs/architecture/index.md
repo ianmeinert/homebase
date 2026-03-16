@@ -26,7 +26,7 @@ orchestrator  (trigger-based category filter + optional HU/HI-only mode)
 | Feature | Where |
 |---|---|
 | `StateGraph` with typed shared state (`TypedDict`) | `graph/state.py`, `graph/graph.py` |
-| `groq_api_key` carried in graph state — survives HITL interrupt/resume | `graph/state.py` |
+| `groq_api_key` and `anthropic_api_key` carried in graph state — survive HITL interrupt/resume | `graph/state.py` |
 | Parallel node fan-out with `Annotated[list, merge_lists]` reducer | `graph/graph.py` |
 | `MemorySaver` checkpointer for state persistence across interrupt | `graph/graph.py` |
 | `interrupt_before` for HITL checkpoint | `graph/graph.py` |

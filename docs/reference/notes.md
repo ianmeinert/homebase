@@ -40,13 +40,23 @@ This means `uv run pytest` works in any environment without `.env` configuration
 
 ## Multi-Provider Notes
 
-The document intake agent (v1.14.0) introduced Gemini as a second LLM provider alongside
-Groq/Llama for real-time orchestration. Both Gemini-backed agents (`intake_agent.py`,
-`analytics_agent.py`, `schema_agent.py`) use `gemini-2.5-flash-lite` via the `google.genai`
-SDK (`from google import genai`).
+HOMEBASE runs three active LLM providers coordinated by the same LangGraph runtime:
+
+**Groq (Llama 3.3 70B)** — handles all five specialist subagents (HVAC, Plumbing, Electrical,
+Appliance, General), orchestration, RCA, 5 Whys, chart generation, registry commands, quadrant
+preview, and completeness scoring. Low latency, high throughput.
+
+**Anthropic (Claude Sonnet)** — handles the synthesizer node when `ANTHROPIC_API_KEY` is set.
+Selected at runtime by `tools/llm_providers.get_synthesizer_model()`; falls back to Groq
+transparently when the key is absent. Model string: `claude-sonnet-4-20250514`.
+
+**Gemini (2.5 Flash-Lite)** — handles Document Intake, Spreadsheet Analytics, and Schema
+Metric Discovery agents via the `google.genai` SDK (`from google import genai`).
+Chosen for native multimodal support and strong data extraction performance.
 
 This demonstrates a provider-agnostic multi-model architecture where each model is used
-where it performs best, coordinated by the same LangGraph runtime.
+where it performs best — and where swapping any provider requires only a new node-level
+model binding, not changes to the graph topology, state schema, or HITL flow.
 
 ---
 

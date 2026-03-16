@@ -22,7 +22,7 @@ uv run streamlit run app.py
 | **Classification table** | Sortable by quadrant; deferred items dimmed post-run |
 | **Recommendation cards** | Tabbed HU/HI and LU/HI views with confidence scoring |
 | **HITL checkpoint panel** | Approve or defer HU/HI and LU/HI items; add notes before finalizing |
-| **Final report** | Groq-generated narrative with highlighted item IDs |
+| **Final report** | Claude Sonnet or Groq-generated narrative (runtime provider selection); highlighted item IDs and provider attribution footer |
 | **Export PDF** | Print-ready light-theme PDF download of the final report |
 | **Run history tab** | Audit trail of all runs; expandable cards with quadrant breakdown, HITL decisions, deferred items, and full report |
 

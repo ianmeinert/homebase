@@ -51,7 +51,7 @@ orchestrator  (trigger-based category filter + optional HU/HI-only mode)
             |
        [human input]       <- approve / defer HU/HI + LU/HI items / add notes
             |
-       synthesizer         <- Groq generates narrative, appends HITL decision record
+       synthesizer         <- Claude Sonnet or Groq generates narrative (runtime provider selection)
             |
            END
 ```
@@ -66,7 +66,7 @@ Full architecture docs: [Architecture Overview](https://ianmeinert.github.io/hom
 uv run pytest
 ```
 
-No API key required — all LLM calls are mocked. **554 passing tests** across 16 files.
+No API key required — all LLM calls are mocked. **583 passing tests** across 17 files.
 
 ---
 

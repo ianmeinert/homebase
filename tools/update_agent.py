@@ -9,6 +9,7 @@ import json
 import re
 from tools.llm_tools import get_model
 from tools.registry_tools import update_item, add_item, close_item, get_registry
+from tools.duplicate_detector import DEFAULT_THRESHOLD as _DUPE_THRESHOLD
 
 # ---------------------------------------------------------------------------
 # Hybrid intent router  —  heuristic first, LLM fallback for ambiguous input
@@ -355,11 +356,36 @@ def interpret_add(instruction: str, api_key: str | None = None) -> dict:
         return {"_error": str(e)}
 
 
-def execute_add(instruction: str, api_key: str | None = None) -> tuple[dict | None, dict]:
-    """Interpret instruction and add a new item. Returns (new_item, fields) or (None, {_error})."""
+def execute_add(
+    instruction: str,
+    api_key: str | None = None,
+    force: bool = False,
+    threshold: float = _DUPE_THRESHOLD,
+) -> tuple[dict | None, dict]:
+    """
+    Interpret instruction and add a new item.
+
+    Runs TF-IDF duplicate detection before writing. If duplicates are found
+    and force=False, returns (None, {_duplicates: [...]}) without writing.
+    Caller must re-invoke with force=True to proceed past the duplicate warning.
+
+    Returns (new_item, fields) on success, or (None, {_error|_duplicates}) on failure/block.
+    """
     fields = interpret_add(instruction, api_key=api_key)
     if "_error" in fields:
         return None, fields
+
+    # Duplicate detection — runs before any DB write
+    if not force:
+        from tools.duplicate_detector import check_duplicates
+        duplicates = check_duplicates(
+            title=fields["title"],
+            description=fields["description"],
+            threshold=threshold,
+        )
+        if duplicates:
+            return None, {"_duplicates": duplicates, "_fields": fields}
+
     new_item = add_item(
         category=fields["category"],
         title=fields["title"],
@@ -374,18 +400,28 @@ def execute_add(instruction: str, api_key: str | None = None) -> tuple[dict | No
 # Unified command entrypoint
 # ---------------------------------------------------------------------------
 
-def execute_command(instruction: str, api_key: str | None = None) -> dict:
+def execute_command(
+    instruction: str,
+    api_key: str | None = None,
+    force_add: bool = False,
+    duplicate_threshold: float = _DUPE_THRESHOLD,
+) -> dict:
     """
     Route a free-text instruction to add / update / close and execute it.
 
     Returns a result dict:
       {
-        "intent":   "add"|"update"|"close",
-        "item_id":  str | None,
-        "item":     dict | None,   # resulting item state
-        "changes":  dict,          # fields changed / added
-        "error":    str | None,
+        "intent":         "add"|"update"|"close",
+        "item_id":        str | None,
+        "item":           dict | None,
+        "changes":        dict,
+        "error":          str | None,
+        "duplicates":     list | None,
+        "pending_fields": dict | None,
       }
+
+    When duplicates are found and force_add=False, the write is blocked and
+    "duplicates" is populated. Re-call with force_add=True to proceed.
     """
     routed = route_intent(instruction, api_key=api_key)
     intent  = routed.get("intent", "update")
@@ -393,37 +429,67 @@ def execute_command(instruction: str, api_key: str | None = None) -> dict:
 
     # --- ADD ---
     if intent == "add":
-        new_item, fields = execute_add(instruction, api_key=api_key)
+        new_item, fields = execute_add(
+            instruction,
+            api_key=api_key,
+            force=force_add,
+            threshold=duplicate_threshold,
+        )
         if new_item is None:
-            return {"intent": "add", "item_id": None, "item": None, "changes": {}, "error": fields.get("_error")}
-        return {"intent": "add", "item_id": new_item["id"], "item": new_item, "changes": fields, "error": None}
+            if "_duplicates" in fields:
+                return {
+                    "intent": "add",
+                    "item_id": None,
+                    "item": None,
+                    "changes": {},
+                    "error": None,
+                    "duplicates": fields["_duplicates"],
+                    "pending_fields": fields.get("_fields", {}),
+                }
+            return {
+                "intent": "add", "item_id": None, "item": None,
+                "changes": {}, "error": fields.get("_error"),
+                "duplicates": None, "pending_fields": None,
+            }
+        return {
+            "intent": "add", "item_id": new_item["id"], "item": new_item,
+            "changes": fields, "error": None,
+            "duplicates": None, "pending_fields": None,
+        }
 
     # --- CLOSE / UPDATE — need to resolve item_id ---
     if not item_id:
         return {"intent": intent, "item_id": None, "item": None, "changes": {},
-                "error": "No item ID found in instruction. Try: 'close APP-001' or 'mark APP-001 as in progress'."}
+                "error": "No item ID found in instruction. Try: 'close APP-001' or 'mark APP-001 as in progress'.",
+                "duplicates": None, "pending_fields": None}
 
     registry = {i["id"]: i for i in get_registry()}
-    # Case-insensitive lookup
     item_id_upper = item_id.upper()
     item = registry.get(item_id_upper)
     if not item:
         return {"intent": intent, "item_id": item_id_upper, "item": None, "changes": {},
-                "error": f"Item {item_id_upper} not found in registry."}
+                "error": f"Item {item_id_upper} not found in registry.",
+                "duplicates": None, "pending_fields": None}
 
     # --- CLOSE ---
     if intent == "close":
         success = close_item(item_id_upper)
         if not success:
             return {"intent": "close", "item_id": item_id_upper, "item": None, "changes": {},
-                    "error": f"Could not close {item_id_upper}."}
-        return {"intent": "close", "item_id": item_id_upper, "item": item, "changes": {"status": "closed"}, "error": None}
+                    "error": f"Could not close {item_id_upper}.",
+                    "duplicates": None, "pending_fields": None}
+        return {"intent": "close", "item_id": item_id_upper, "item": item,
+                "changes": {"status": "closed"}, "error": None,
+                "duplicates": None, "pending_fields": None}
 
     # --- UPDATE ---
     updated, changes = apply_update(item_id_upper, item, instruction, api_key=api_key)
     if "_error" in changes:
-        return {"intent": "update", "item_id": item_id_upper, "item": None, "changes": {}, "error": changes["_error"]}
+        return {"intent": "update", "item_id": item_id_upper, "item": None, "changes": {},
+                "error": changes["_error"], "duplicates": None, "pending_fields": None}
     if not changes:
         return {"intent": "update", "item_id": item_id_upper, "item": item, "changes": {},
-                "error": "Could not infer any changes. Be more specific or include the item ID (e.g. 'raise urgency on APP-001 to 0.9')."}
-    return {"intent": "update", "item_id": item_id_upper, "item": updated, "changes": changes, "error": None}
+                "error": "Could not infer any changes. Be more specific or include the item ID (e.g. 'raise urgency on APP-001 to 0.9').",
+                "duplicates": None, "pending_fields": None}
+    return {"intent": "update", "item_id": item_id_upper, "item": updated,
+            "changes": changes, "error": None, "duplicates": None, "pending_fields": None}

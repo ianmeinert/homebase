@@ -359,6 +359,11 @@ def init_state():
         "schema_mermaid_text": "",    # pasted mermaid text
         "schema_file_bytes":  None,   # uploaded tabular file bytes
         "schema_filename":    "",     # uploaded tabular filename
+        # Duplicate detection pending state
+        "pending_duplicate_instruction": "",   # original add instruction held for force-add
+        "pending_duplicate_matches":    [],    # DuplicateMatch list from last check
+        "pending_duplicate_fields":     {},    # extracted fields from interpret_add
+        "pending_duplicate_confirmed":  "",    # item_id of successfully force-added item
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -1748,10 +1753,87 @@ with main_tabs[0]:
             st.rerun()
 
         else:
+            # Render force-add confirmation from previous rerun (before running new command)
+            if st.session_state.get("pending_duplicate_confirmed", ""):
+                _conf = st.session_state.pending_duplicate_confirmed
+                st.session_state.pending_duplicate_confirmed = ""
+                if _conf.startswith("ERROR:"):
+                    st.markdown(
+                        f"<div style='background:#1a0a0a;border:1px solid #ff6b6b;border-radius:6px;"
+                        f"padding:10px 14px;font-size:12px;color:#ff6b6b;font-family:IBM Plex Mono,monospace;'>"
+                        f"{_conf[6:]}</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"<div style='background:#0d1117;border:1px solid #238636;border-radius:6px;"
+                        f"padding:12px 16px;font-family:IBM Plex Mono,monospace;font-size:12px;'>"
+                        f"<div style='color:#56d364;font-weight:600;'>ADDED {_conf}</div>"
+                        f"<div style='color:#8b949e;margin-top:4px;'>Item added to registry (duplicate override)</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
             # Registry command
             with st.spinner("Agent processing..."):
                 _result = _execute_command(_input, api_key=_api_key)
-            if _result["error"]:
+
+            # --- Duplicate detection intercept ---
+            if _result.get("duplicates"):
+                st.session_state.pending_duplicate_instruction = _input
+                st.session_state.pending_duplicate_matches = _result["duplicates"]
+                st.session_state.pending_duplicate_fields = _result.get("pending_fields", {})
+                _dupes = _result["duplicates"]
+                _pf = _result.get("pending_fields", {})
+                st.markdown(
+                    "<div style='background:#1a1400;border:1px solid #f5a623;border-radius:6px;"
+                    "padding:12px 16px;font-family:IBM Plex Mono,monospace;font-size:12px;margin-bottom:8px;'>"
+                    "<div style='color:#f5a623;font-weight:600;margin-bottom:8px;'>⚠ DUPLICATE DETECTED</div>"
+                    f"<div style='color:#8b949e;margin-bottom:6px;'>Proposed: <span style='color:#e6edf3;'>"
+                    f"{_pf.get('title', _input)}</span></div>"
+                    "<div style='color:#8b949e;font-size:11px;margin-bottom:8px;'>Similar items already in registry:</div>"
+                    + "".join(
+                        f"<div style='margin:3px 0;padding:4px 8px;background:#0d1117;border-radius:4px;'>"
+                        f"<span style='color:#79c0ff;'>[{m['item_id']}]</span> "
+                        f"<span style='color:#e6edf3;'>{m['title']}</span> "
+                        f"<span style='color:#f5a623;font-size:10px;'>({m['score_pct']}% match)</span>"
+                        f"</div>"
+                        for m in _dupes
+                    )
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+                _col_proceed, _col_cancel = st.columns(2)
+                with _col_proceed:
+                    if st.button("➕ Add anyway", key="dup_proceed", type="primary"):
+                        with st.spinner("Adding item..."):
+                            _result2 = _execute_command(
+                                st.session_state.pending_duplicate_instruction,
+                                api_key=_api_key,
+                                force_add=True,
+                            )
+                        st.session_state.pending_duplicate_instruction = ""
+                        st.session_state.pending_duplicate_matches = []
+                        st.session_state.pending_duplicate_fields = {}
+                        if _result2.get("error"):
+                            st.session_state.pending_duplicate_confirmed = f"ERROR:{_result2['error']}"
+                        else:
+                            st.session_state.pending_duplicate_confirmed = _result2["item_id"]
+                            if st.session_state.classified_items:
+                                _fresh = {i["id"]: i for i in _get_registry()}
+                                st.session_state.classified_items = [
+                                    _fresh.get(i["id"], i)
+                                    for i in st.session_state.classified_items
+                                    if i["id"] in _fresh
+                                ]
+                        st.rerun()
+                with _col_cancel:
+                    if st.button("✕ Cancel", key="dup_cancel"):
+                        st.session_state.pending_duplicate_instruction = ""
+                        st.session_state.pending_duplicate_matches = []
+                        st.session_state.pending_duplicate_fields = {}
+                        st.rerun()
+
+            elif _result["error"]:
                 st.markdown(
                     f"<div style='background:#1a0a0a;border:1px solid #ff6b6b;border-radius:6px;"
                     f"padding:10px 14px;font-size:12px;color:#ff6b6b;font-family:IBM Plex Mono,monospace;'>"

@@ -13,9 +13,7 @@ _Nothing currently in active development._
 
 ## Next
 
-| Version | Feature | Description | Enterprise Analog |
-|---|---|---|---|
-| v1.18.0 | TF-IDF Duplicate Detection | New `tools/duplicate_detector.py` — deterministic TF-IDF cosine similarity (`sklearn.TfidfVectorizer`) against existing registry titles and descriptions before any new item is created; configurable similarity threshold (default 0.75); optional LLM confirmation call only fires when match exceeds threshold; surfaces candidate duplicates in UI before write | Deduplication pipeline for intake queues (ServiceNow, Jira, RMA) |
+_Nothing currently in active development._
 
 ---
 
@@ -89,3 +87,4 @@ HOMEBASE intentionally demonstrates a **multi-provider, multi-model agentic arch
 | v1.16.0 | Schema-Aware Metric Discovery Agent (Gemini 2.5 Flash-Lite, CSV + Mermaid ERD input, computable metrics, derived fields, quality observations, schema gaps), HOMEBASE ERD, POC disclaimer, dependency fixes |
 | v1.16.1 | MkDocs documentation site (Material theme, GitHub Pages, auto-deploy workflow), README cleanup, Node.js 24 Actions upgrade |
 | v1.17.0 | Multi-provider LLM architecture (Claude Sonnet synthesizer, Groq subagents, runtime provider selection via `ANTHROPIC_API_KEY`, sidebar provider status, 29 new tests) |
+| v1.18.0 | TF-IDF Duplicate Detection (`tools/duplicate_detector.py`, sklearn cosine similarity, configurable threshold, status filter, HITL warning UI, `execute_add` integration, 33 new tests) |
